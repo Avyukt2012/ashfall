@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ASHFALL — a duel in three movements</title>
+<link rel="stylesheet" href="css/game.css">
+</head>
+<body>
+
+<canvas id="arena"></canvas>
+<div class="grain" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
+<div class="bloodline" aria-hidden="true"></div>
+<div class="flash" aria-hidden="true"></div>
+<div class="numbers" id="numbers" aria-hidden="true"></div>
+
+<div class="crops" aria-hidden="true">
+  <i class="crop crop--tl"></i><i class="crop crop--tr"></i>
+  <i class="crop crop--bl"></i><i class="crop crop--br"></i>
+</div>
+
+<button class="theme-toggle" id="themeToggle" title="Invert">
+  <span class="theme-toggle__dot"></span>
+  <span class="theme-toggle__label">INVERT</span>
+</button>
+<button class="mute-toggle" id="muteToggle" title="Sound">
+  <span class="mute-toggle__bars"><i></i><i></i><i></i><i></i></span>
+</button>
+
+<div class="shell" id="shell">
+
+  <!-- ── TITLE ───────────────────────────────────────────── -->
+  <section class="screen screen--title" id="screenTitle">
+    <div class="title-inner">
+      <p class="eyebrow" data-reveal>
+        <span class="eyebrow__tick"></span>A DUEL IN THREE MOVEMENTS
+      </p>
+      <h1 class="wordmark" aria-label="Ashfall">
+        <span class="glyph">A</span><span class="glyph">S</span><span class="glyph">H</span><span class="glyph">F</span><span class="glyph">A</span><span class="glyph">L</span><span class="glyph">L</span>
+      </h1>
+      <div class="title-rule"><i></i></div>
+
+      <div class="title-grid">
+        <div class="title-copy">
+          <p class="lede" data-reveal>
+            Four moves. One warden. Bank your charge and it multiplies —
+            but a <b>Sunder</b> will shatter what you hold. Read the intent. Spend well.
+          </p>
+          <button class="cta" id="beginBtn">
+            <span class="cta__fill"></span>
+            <span class="cta__text">BEGIN THE DUEL</span>
+            <span class="cta__hint">↵</span>
+          </button>
+        </div>
+
+        <div class="primer" id="primer">
+          <div class="primer__row" data-primer>
+            <span class="primer__key">1</span><span class="primer__name">STRIKE</span>
+            <span class="primer__desc">25–49 damage. Spends all charge.</span>
+          </div>
+          <div class="primer__row" data-primer>
+            <span class="primer__key">2</span><span class="primer__name">MEND</span>
+            <span class="primer__desc">10–19 healing, plus charge.</span>
+          </div>
+          <div class="primer__row" data-primer>
+            <span class="primer__key">3</span><span class="primer__name">CHANNEL</span>
+            <span class="primer__desc">+5–19 charge. At 25 it turns critical: ×3 on your next strike.</span>
+          </div>
+          <div class="primer__row" data-primer>
+            <span class="primer__key">4</span><span class="primer__name">GUARD</span>
+            <span class="primer__desc">Halve the blow, bank what you turn aside, keep your charge.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── BATTLE ──────────────────────────────────────────── -->
+  <main class="screen screen--battle" id="screenBattle" aria-hidden="true">
+
+    <header class="boss" id="bossPlate">
+      <div class="boss__head">
+        <div class="boss__id">
+          <h2 class="boss__name" id="bossName">VYRETH</h2>
+          <p class="boss__title" id="bossTitle">THE ASHEN WARDEN</p>
+        </div>
+        <div class="boss__state">
+          <div class="pips" id="phasePips"><i class="pip is-on"></i><i class="pip"></i><i class="pip"></i></div>
+          <p class="boss__phase" id="phaseName">DORMANT</p>
+          <p class="boss__hpnum"><span id="bossHpNum">450</span><em>/450</em></p>
+        </div>
+      </div>
+      <div class="bar bar--boss">
+        <div class="bar__track">
+          <div class="bar__lag" id="bossLag"></div>
+          <div class="bar__fill" id="bossFill"></div>
+          <div class="bar__ticks" id="bossTicks"></div>
+          <div class="bar__thresh" style="left:66%"></div>
+          <div class="bar__thresh" style="left:33%"></div>
+        </div>
+        <div class="bar__mana" id="bossManaWrap">
+          <span class="bar__mana-label">WARDEN CHARGE</span>
+          <span class="bar__mana-val" id="bossManaVal">0</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="mid">
+      <section class="log" id="log" aria-live="polite"></section>
+
+      <aside class="intent" id="intentCard">
+        <p class="intent__eyebrow">NEXT INTENT</p>
+        <div class="intent__body">
+          <svg class="intent__icon" id="intentIcon" viewBox="0 0 48 48" fill="none" stroke-width="2.5"
+               stroke-linecap="square" stroke-linejoin="miter"></svg>
+          <div>
+            <p class="intent__label" id="intentLabel">STILL</p>
+            <p class="intent__hint" id="intentHint">Watching. Waiting.</p>
+          </div>
+        </div>
+        <p class="intent__threat" id="intentThreat"></p>
+      </aside>
+    </div>
+
+    <footer class="deck" id="deck">
+      <div class="deck__status">
+        <div class="you">
+          <p class="you__label">YOU<span id="guardTag" class="you__tag">GUARDING</span></p>
+          <p class="you__hp"><span id="playerHpNum">250</span><em>/250</em></p>
+        </div>
+        <div class="bar bar--player">
+          <div class="bar__track">
+            <div class="bar__lag" id="playerLag"></div>
+            <div class="bar__fill" id="playerFill"></div>
+          </div>
+        </div>
+        <div class="mana" id="manaWrap">
+          <p class="mana__label">CHARGE <span id="manaVal">0</span><em>/40</em></p>
+          <div class="mana__cells" id="manaCells"></div>
+          <p class="mana__crit" id="manaCrit">CRITICAL — STRIKE ×3</p>
+        </div>
+      </div>
+
+      <div class="actions" id="actions">
+        <button class="act" data-act="strike">
+          <span class="act__key">1</span>
+          <span class="act__name">STRIKE</span>
+          <span class="act__sub">25–49 <b>+ charge</b></span>
+          <span class="act__sweep"></span>
+          <span class="act__edge"></span>
+        </button>
+        <button class="act" data-act="mend">
+          <span class="act__key">2</span>
+          <span class="act__name">MEND</span>
+          <span class="act__sub">10–19 <b>+ charge</b></span>
+          <span class="act__sweep"></span>
+          <span class="act__edge"></span>
+        </button>
+        <button class="act" data-act="channel">
+          <span class="act__key">3</span>
+          <span class="act__name">CHANNEL</span>
+          <span class="act__sub">+5–19 charge</span>
+          <span class="act__sweep"></span>
+          <span class="act__edge"></span>
+        </button>
+        <button class="act" data-act="guard">
+          <span class="act__key">4</span>
+          <span class="act__name">GUARD</span>
+          <span class="act__sub">×0.5 taken</span>
+          <span class="act__sweep"></span>
+          <span class="act__edge"></span>
+        </button>
+      </div>
+    </footer>
+  </main>
+
+  <!-- ── RESULT ──────────────────────────────────────────── -->
+  <section class="screen screen--result" id="screenResult" aria-hidden="true">
+    <div class="result-inner">
+      <p class="eyebrow" id="resultEyebrow"><span class="eyebrow__tick"></span>THE DUEL IS ENDED</p>
+      <h2 class="result__word" id="resultWord"></h2>
+      <p class="result__line" id="resultLine"></p>
+      <div class="scores" id="scores"></div>
+      <button class="cta" id="againBtn">
+        <span class="cta__fill"></span>
+        <span class="cta__text">RUN IT BACK</span>
+        <span class="cta__hint">↵</span>
+      </button>
+    </div>
+  </section>
+
+</div>
+
+<div class="banner" id="banner" aria-hidden="true">
+  <div class="banner__bg"></div>
+  <p class="banner__text" id="bannerText"></p>
+</div>
+
+<script src="vendor/gsap.min.js"></script>
+<script type="module" src="js/game.js"></script>
+</body>
+</html>

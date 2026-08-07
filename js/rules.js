@@ -1,0 +1,246 @@
+export const CONFIG = {
+  player: { maxHp: 250, manaCap: 40 },
+  boss: { maxHp: 450, manaCap: 40 },
+  strike: [25, 49],
+  mend: [10, 19],
+  channel: [5, 19],
+  overchargeAt: 25,
+  overchargeMult: 3.0,
+  mendManaMult: 1.1,
+  sunderStrip: 0.6,
+  critChance: 0.12,
+  critMult: 1.8,
+  guardMult: 0.5,
+  guardConversion: 0.4
+};
+
+export const BOSS = {
+  name: 'VYRETH',
+  title: 'THE ASHEN WARDEN'
+};
+
+export const PHASES = [
+  {
+    id: 0,
+    key: 'dormant',
+    name: 'DORMANT',
+    threshold: 0.66,
+    strike: [15, 54],
+    mend: [10, 14],
+    channel: [2, 14],
+    table: [['strike', 1], ['mend', 1], ['channel', 2], ['wait', 3]]
+  },
+  {
+    id: 1,
+    key: 'awakened',
+    name: 'AWAKENED',
+    threshold: 0.33,
+    strike: [22, 58],
+    mend: [12, 20],
+    channel: [6, 18],
+    table: [['strike', 4], ['mend', 1], ['channel', 2], ['wait', 1]]
+  },
+  {
+    id: 2,
+    key: 'enraged',
+    name: 'ENRAGED',
+    threshold: -1,
+    strike: [28, 62],
+    sunder: [52, 84],
+    mend: [10, 16],
+    channel: [6, 20],
+    table: [['strike', 4], ['sunder', 3], ['channel', 2], ['mend', 1]]
+  }
+];
+
+export const INTENT_COPY = {
+  strike: { label: 'STRIKE', hint: 'Winding up a blow' },
+  sunder: { label: 'SUNDER', hint: 'Gathering a heavy break' },
+  mend: { label: 'MEND', hint: 'Knitting its wounds shut' },
+  channel: { label: 'CHANNEL', hint: 'Drawing power inward' },
+  wait: { label: 'STILL', hint: 'Watching. Waiting.' }
+};
+
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+
+export function makeRng(seed) {
+  if (seed === undefined) return Math.random;
+  let s = seed >>> 0;
+  return () => {
+    s ^= s << 13; s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5; s >>>= 0;
+    return s / 4294967296;
+  };
+}
+
+export class Battle {
+  constructor(seed) {
+    this.rng = makeRng(seed);
+    this.player = { hp: CONFIG.player.maxHp, maxHp: CONFIG.player.maxHp, mana: 0, guarding: false };
+    this.boss = { hp: CONFIG.boss.maxHp, maxHp: CONFIG.boss.maxHp, mana: 0 };
+    this.phase = 0;
+    this.turn = 0;
+    this.over = false;
+    this.outcome = null;
+    this.stats = { turns: 0, dealt: 0, taken: 0, healed: 0, blocked: 0, biggest: 0, crits: 0, channels: 0 };
+    this.intent = null;
+    this.rollIntent();
+  }
+
+  range([lo, hi]) {
+    return lo + Math.floor(this.rng() * (hi - lo + 1));
+  }
+
+  get phaseData() {
+    return PHASES[this.phase];
+  }
+
+  get overcharged() {
+    return this.player.mana >= CONFIG.overchargeAt;
+  }
+
+  syncPhase(events) {
+    const frac = this.boss.hp / this.boss.maxHp;
+    let next = this.phase;
+    while (next < PHASES.length - 1 && frac <= PHASES[next].threshold) next++;
+    if (next !== this.phase) {
+      const from = this.phase;
+      this.phase = next;
+      events.push({ t: 'phase', from, to: next, name: PHASES[next].name });
+      this.rollIntent();
+      events.push({ t: 'intent', intent: this.intent, forced: true });
+    }
+  }
+
+  rollIntent() {
+    const table = this.phaseData.table;
+    const total = table.reduce((a, [, w]) => a + w, 0);
+    let roll = this.rng() * total;
+    for (const [move, weight] of table) {
+      roll -= weight;
+      if (roll <= 0) { this.intent = move; return; }
+    }
+    this.intent = table[table.length - 1][0];
+  }
+
+  checkEnd(events) {
+    const dead = this.player.hp <= 0;
+    const slain = this.boss.hp <= 0;
+    if (!dead && !slain) return false;
+    this.over = true;
+    this.outcome = slain && dead ? 'draw' : slain ? 'victory' : 'defeat';
+    events.push({ t: 'end', outcome: this.outcome, stats: this.stats });
+    return true;
+  }
+
+  playerTurn(action) {
+    if (this.over) return [];
+    const events = [];
+    this.turn++;
+    this.stats.turns++;
+    this.player.guarding = false;
+    const mana = this.player.mana;
+
+    if (action === 'strike') {
+      const base = this.range(CONFIG.strike);
+      const bonus = this.overcharged ? Math.round(mana * CONFIG.overchargeMult) : mana;
+      const crit = this.rng() < CONFIG.critChance;
+      const amount = Math.round((base + bonus) * (crit ? CONFIG.critMult : 1));
+      this.player.mana = 0;
+      this.boss.hp = Math.max(0, this.boss.hp - amount);
+      this.stats.dealt += amount;
+      this.stats.biggest = Math.max(this.stats.biggest, amount);
+      if (crit) this.stats.crits++;
+      events.push({
+        t: 'strike', amount, base, bonus, crit,
+        overcharged: this.overcharged && mana > 0, manaSpent: mana, bossHp: this.boss.hp
+      });
+      this.syncPhase(events);
+    } else if (action === 'mend') {
+      const base = this.range(CONFIG.mend);
+      const raw = base + Math.round(mana * CONFIG.mendManaMult);
+      const amount = Math.min(raw, this.player.maxHp - this.player.hp);
+      this.player.mana = 0;
+      this.player.hp += amount;
+      this.stats.healed += amount;
+      events.push({ t: 'mend', amount, raw, wasted: raw - amount, manaSpent: mana, playerHp: this.player.hp });
+    } else if (action === 'channel') {
+      const gain = Math.min(this.range(CONFIG.channel), CONFIG.player.manaCap - this.player.mana);
+      this.player.mana += gain;
+      this.stats.channels++;
+      events.push({ t: 'channel', amount: gain, mana: this.player.mana });
+    } else if (action === 'guard') {
+      this.player.guarding = true;
+      events.push({ t: 'guard' });
+    }
+
+    if (this.checkEnd(events)) return events;
+    return events;
+  }
+
+  bossTurn() {
+    if (this.over) return [];
+    const events = [];
+    const phase = this.phaseData;
+    const move = this.intent;
+    const mana = this.boss.mana;
+
+    if (move === 'strike' || move === 'sunder') {
+      const heavy = move === 'sunder';
+      const base = this.range(heavy ? phase.sunder : phase.strike);
+      const raw = base + Math.round(mana * (heavy ? 1.5 : 1));
+      const dealt = this.player.guarding ? Math.round(raw * CONFIG.guardMult) : raw;
+      const prevented = raw - dealt;
+      this.boss.mana = 0;
+      this.player.hp = Math.max(0, this.player.hp - dealt);
+      this.stats.taken += dealt;
+      this.stats.blocked += prevented;
+      let converted = 0;
+      if (this.player.guarding && prevented > 0) {
+        converted = Math.min(
+          Math.round(prevented * CONFIG.guardConversion),
+          CONFIG.player.manaCap - this.player.mana
+        );
+        this.player.mana += converted;
+      }
+      let stripped = 0;
+      if (heavy && !this.player.guarding && this.player.mana > 0) {
+        stripped = Math.round(this.player.mana * CONFIG.sunderStrip);
+        this.player.mana -= stripped;
+      }
+      events.push({
+        t: 'bossStrike', heavy, amount: dealt, raw, prevented, converted, stripped,
+        guarded: this.player.guarding, manaSpent: mana, playerHp: this.player.hp,
+        mana: this.player.mana
+      });
+    } else if (move === 'mend') {
+      const raw = this.range(phase.mend) + mana;
+      const amount = Math.min(raw, this.boss.maxHp - this.boss.hp);
+      this.boss.mana = 0;
+      this.boss.hp += amount;
+      events.push({ t: 'bossMend', amount, raw, wasted: raw - amount, manaSpent: mana, bossHp: this.boss.hp });
+    } else if (move === 'channel') {
+      const gain = Math.min(this.range(phase.channel), CONFIG.boss.manaCap - this.boss.mana);
+      this.boss.mana += gain;
+      events.push({ t: 'bossChannel', amount: gain, mana: this.boss.mana });
+    } else {
+      events.push({ t: 'bossWait' });
+    }
+
+    this.player.guarding = false;
+    if (this.checkEnd(events)) return events;
+    this.rollIntent();
+    events.push({ t: 'intent', intent: this.intent });
+    return events;
+  }
+}
+
+export function expectedIncoming(battle) {
+  const phase = PHASES[battle.phase];
+  const move = battle.intent;
+  if (move !== 'strike' && move !== 'sunder') return 0;
+  const heavy = move === 'sunder';
+  const [lo, hi] = heavy ? phase.sunder : phase.strike;
+  return (lo + hi) / 2 + battle.boss.mana * (heavy ? 1.5 : 1);
+}
