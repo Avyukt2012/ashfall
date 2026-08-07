@@ -359,6 +359,25 @@ html[data-mode="unbound"][data-theme="light"]{--ember:#c40024;--ember-soft:rgba(
 }
 .intent.is-danger{border-color:var(--ember);box-shadow:0 0 0 1px var(--ember-soft),0 0 44px var(--ember-soft)}
 
+.intent.is-veiled{
+  border-color:var(--ember);
+  background:color-mix(in srgb,var(--body) 88%,transparent);
+  box-shadow:0 0 0 1px var(--ember-soft),inset 0 0 60px rgba(0,0,0,.6);
+}
+.intent.is-veiled .intent__label{
+  color:var(--ember);
+  text-shadow:2px 0 var(--ember-soft),-2px 0 rgba(120,120,120,.4);
+}
+.intent.is-veiled .intent__eyebrow::after{
+  content:'— VEILED';margin-left:8px;color:var(--ember);
+}
+.intent.is-veiled .intent__hint{color:var(--dim);font-style:italic}
+
+body.is-eclipsed .vignette{
+  background:radial-gradient(115% 85% at 50% 45%,transparent 18%,color-mix(in srgb,var(--void) 70%,black) 100%);
+}
+body.is-eclipsed .grain{opacity:.72}
+
 /* ── deck ────────────────────────────────────────────── */
 .deck{display:flex;justify-content:space-between;align-items:flex-end;gap:clamp(18px,3vw,46px);flex-wrap:wrap}
 .deck__status{flex:1;min-width:250px;max-width:430px}

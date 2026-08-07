@@ -32,7 +32,7 @@ const el = {
   scores: $('#scores'), themeToggle: $('#themeToggle'), muteToggle: $('#muteToggle'),
   record: $('#record'), streak: $('#streak'), dread: $('.dread'),
   shieldBar: $('#shieldBar'), shieldFill: $('#shieldFill'), shieldNum: $('#bossShieldNum'),
-  bossHpMax: $('#bossHpMax'), modes: $('#modes')
+  bossHpMax: $('#bossHpMax'), playerHpMax: $('#playerHpMax'), modes: $('#modes')
 };
 
 let mode = 'normal';
@@ -45,7 +45,9 @@ const ICONS = {
   sunder: ['M8 13 L24 27 L40 13', 'M8 25 L24 39 L40 25', 'M24 4 L24 10'],
   mend: ['M24 11 L24 37', 'M11 24 L37 24', 'M15 15 L33 33'],
   channel: ['M15 33 A13 13 0 0 1 33 33', 'M9 37 A21 21 0 0 1 39 37', 'M24 9 L24 21'],
-  wait: ['M24 8 A16 16 0 1 1 23.9 8', 'M24 21 L24 27']
+  wait: ['M24 8 A16 16 0 1 1 23.9 8', 'M24 21 L24 27'],
+  eclipse: ['M24 7 A17 17 0 1 1 23.9 7', 'M24 7 A17 17 0 0 0 24 41 A11 11 0 0 0 24 7'],
+  unseen: ['M9 15 L39 15', 'M9 24 L31 24', 'M9 33 L35 33']
 };
 
 const sfx = new Sfx();
@@ -375,9 +377,10 @@ function drawIcon(kind) {
   });
 }
 
-function setIntent(kind) {
-  const c = INTENT_COPY[kind];
-  const danger = kind === 'strike' || kind === 'sunder';
+function setIntent(kind, hidden) {
+  const shown = hidden ? 'unseen' : kind;
+  const c = INTENT_COPY[shown];
+  const danger = !hidden && (kind === 'strike' || kind === 'sunder');
   const tl = gsap.timeline();
 
   tl.to([el.intentLabel, el.intentHint], {
@@ -387,11 +390,13 @@ function setIntent(kind) {
       el.intentLabel.textContent = c.label;
       el.intentHint.textContent = c.hint;
       el.intent.classList.toggle('is-danger', danger);
-      el.intentThreat.textContent = kind === 'sunder'
-        ? 'HEAVY — GUARD TO KEEP YOUR CHARGE'
-        : danger ? 'INCOMING' : '';
-      drawIcon(kind);
-      gsap.set(el.intentIcon, { stroke: danger ? pal.ember : pal.acid });
+      el.intent.classList.toggle('is-veiled', !!hidden);
+      el.intentThreat.textContent = hidden
+        ? 'A BLOW IS COMING. YOU CANNOT SEE WHICH.'
+        : kind === 'sunder' ? 'HEAVY — GUARD TO KEEP YOUR CHARGE'
+          : danger ? 'INCOMING' : '';
+      drawIcon(shown);
+      gsap.set(el.intentIcon, { stroke: hidden ? pal.ember : danger ? pal.ember : pal.acid });
     })
     .fromTo([el.intentLabel, el.intentHint],
       { opacity: 0, x: 14, filter: 'blur(4px)' },
@@ -453,7 +458,9 @@ function playEvents(events) {
       case 'bossMend': bossMendBeat(tl, ev); break;
       case 'bossChannel': bossChannelBeat(tl, ev); break;
       case 'bossWait': bossWaitBeat(tl); break;
-      case 'intent': tl.add(() => setIntent(ev.intent), '+=0.05'); break;
+      case 'intent': tl.add(() => setIntent(ev.intent, ev.hidden), '+=0.05'); break;
+      case 'eclipse': eclipseBeat(tl, ev); break;
+      case 'eclipseEnd': eclipseEndBeat(tl); break;
       case 'end': endBeat(tl, ev); break;
     }
   }
@@ -607,9 +614,11 @@ function bossStrikeBeat(tl, ev) {
       if (ev.guarded) {
         logLine(`You turn ${ev.prevented} aside. <b>${ev.amount}</b> lands.`, 'boss');
       } else {
-        logLine(ev.heavy
-          ? `${BOSS.name} <b>sunders</b> you for <b>${ev.amount}</b>.`
-          : `${BOSS.name} strikes you for <b>${ev.amount}</b>.`, 'boss');
+        logLine(ev.veiled
+          ? `Out of the dark — <b>${ev.amount}</b>.`
+          : ev.heavy
+            ? `${BOSS.name} <b>sunders</b> you for <b>${ev.amount}</b>.`
+            : `${BOSS.name} strikes you for <b>${ev.amount}</b>.`, 'boss');
       }
     })
     .to(el.shell, { duration: 0.35 })
@@ -667,6 +676,38 @@ function bossChannelBeat(tl, ev) {
     syncBossMana();
     logLine(`${BOSS.name} gathers <b>+${ev.amount}</b>.`, 'boss');
   }).to(el.shell, { duration: 0.62 });
+}
+
+function eclipseBeat(tl, ev) {
+  tl.add(() => {
+    arena.eclipseFall();
+    gsap.to(arena.boss, { eclipse: 1, duration: 1.1, ease: 'power3.inOut' });
+    sfx.tone({ f: 150, to: 34, dur: 1.7, gain: 0.5, type: 'sine' });
+    sfx.tone({ f: 44, to: 26, dur: 2.1, gain: 0.4, type: 'triangle' });
+    sfx.burst({ dur: 1.5, freq: 900, q: 0.5, gain: 0.34, sweep: -840 });
+    sfx.setDread(0.85);
+    flash(pal.void, 0.85, 1.0);
+    shakeShell(20, 0.9);
+    document.body.classList.add('is-eclipsed');
+    logLine(`<b>ECLIPSE</b> — it blots itself out for ${ev.turns} turns.`, 'sys');
+  })
+    .to(el.shell, { duration: 0.35 })
+    .call(() => banner('ECLIPSE', pal.void))
+    .to(el.shell, { duration: 2.05 });
+}
+
+function eclipseEndBeat(tl) {
+  tl.add(() => {
+    arena.eclipseLift();
+    gsap.to(arena.boss, { eclipse: 0, duration: 0.8, ease: 'power3.out' });
+    sfx.tone({ f: 300, to: 900, dur: 0.7, gain: 0.2, type: 'triangle' });
+    sfx.burst({ dur: 0.8, freq: 600, q: 0.6, gain: 0.28, sweep: 2200 });
+    sfx.setDread(0);
+    flash(pal.pale, 0.5, 0.7);
+    shakeShell(12, 0.6);
+    document.body.classList.remove('is-eclipsed');
+    logLine(`The veil lifts. You can read it again.`, 'sys');
+  }).to(el.shell, { duration: 0.7 });
 }
 
 function bossWaitBeat(tl) {
@@ -763,6 +804,7 @@ async function startBattle() {
   el.bossHpMax.textContent = '/' + battle.boss.maxHp;
   el.bossHpNum.textContent = battle.boss.maxHp;
   el.playerHpNum.textContent = battle.player.maxHp;
+  el.playerHpMax.textContent = '/' + battle.player.maxHp;
   el.manaVal.textContent = '0';
   el.bossManaVal.textContent = '0';
   [...el.phasePips.children].forEach((p, i) => p.classList.toggle('is-on', i === 0));
@@ -773,6 +815,9 @@ async function startBattle() {
   gsap.set(el.shieldFill, { scaleX: 0 });
   el.shieldNum.textContent = '';
   arena.boss.shield = 0;
+  arena.boss.eclipse = 0;
+  document.body.classList.remove('is-eclipsed');
+  el.intent.classList.remove('is-veiled');
   gsap.set(el.manaCrit, { opacity: 0 });
   el.manaWrap.classList.remove('is-crit');
   el.actions.querySelector('[data-act="strike"]').dataset.charged = '0';

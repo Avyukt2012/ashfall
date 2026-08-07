@@ -64,7 +64,7 @@ export const UNBOUND_PHASES = [
     sunder: [48, 74],
     mend: [16, 26],
     channel: [8, 20],
-    table: [['strike', 4], ['sunder', 2], ['mend', 2], ['channel', 2]]
+    table: [['strike', 4], ['sunder', 2], ['mend', 2], ['channel', 2], ['eclipse', 2]]
   },
   {
     id: 1,
@@ -75,7 +75,7 @@ export const UNBOUND_PHASES = [
     sunder: [56, 84],
     mend: [18, 28],
     channel: [9, 22],
-    table: [['strike', 4], ['sunder', 3], ['mend', 2], ['channel', 2]]
+    table: [['strike', 4], ['sunder', 3], ['mend', 1], ['channel', 1], ['eclipse', 3]]
   },
   {
     id: 2,
@@ -86,7 +86,7 @@ export const UNBOUND_PHASES = [
     sunder: [62, 92],
     mend: [20, 30],
     channel: [10, 24],
-    table: [['strike', 4], ['sunder', 4], ['mend', 2], ['channel', 2]]
+    table: [['strike', 4], ['sunder', 4], ['mend', 1], ['channel', 1], ['eclipse', 3]]
   }
 ];
 
@@ -113,6 +113,8 @@ export const MODES = {
     sunderStrip: 1,
     guardConversion: 0.32,
     guardMult: 0.58,
+    eclipseTurns: 3,
+    eclipseBonus: 1.2,
     phases: UNBOUND_PHASES
   }
 };
@@ -122,7 +124,9 @@ export const INTENT_COPY = {
   sunder: { label: 'SUNDER', hint: 'Gathering a heavy break' },
   mend: { label: 'MEND', hint: 'Knitting its wounds shut' },
   channel: { label: 'CHANNEL', hint: 'Drawing power inward' },
-  wait: { label: 'STILL', hint: 'Watching. Waiting.' }
+  wait: { label: 'STILL', hint: 'Watching. Waiting.' },
+  eclipse: { label: 'ECLIPSE', hint: 'Blotting itself from sight' },
+  unseen: { label: 'UNSEEN', hint: 'You cannot read what is coming' }
 };
 
 export function makeRng(seed) {
@@ -152,6 +156,7 @@ export class Battle {
       biggest: 0, crits: 0, channels: 0, shieldBroken: 0
     };
     this.intent = null;
+    this.eclipse = 0;
     this.rollIntent();
   }
 
@@ -194,7 +199,10 @@ export class Battle {
   }
 
   rollIntent() {
-    const table = this.phaseData.table;
+    const all = this.phaseData.table;
+    const table = this.eclipse > 0
+      ? (all.filter(([m]) => m === 'strike' || m === 'sunder') || all)
+      : all;
     const total = table.reduce((a, [, w]) => a + w, 0);
     let roll = this.rng() * total;
     for (const [move, weight] of table) {
@@ -271,7 +279,8 @@ export class Battle {
     if (move === 'strike' || move === 'sunder') {
       const heavy = move === 'sunder';
       const base = this.range(heavy ? phase.sunder : phase.strike);
-      const raw = base + Math.round(mana * (heavy ? 1.5 : 1));
+      const veiled = this.eclipse > 0 ? (this.mode.eclipseBonus || 1) : 1;
+      const raw = Math.round((base + Math.round(mana * (heavy ? 1.5 : 1))) * veiled);
       const dealt = this.player.guarding ? Math.round(raw * this.mode.guardMult) : raw;
       const prevented = raw - dealt;
       this.boss.mana = 0;
@@ -294,7 +303,7 @@ export class Battle {
       events.push({
         t: 'bossStrike', heavy, amount: dealt, raw, prevented, converted, stripped,
         guarded: this.player.guarding, manaSpent: mana, playerHp: this.player.hp,
-        mana: this.player.mana
+        mana: this.player.mana, veiled: veiled > 1
       });
     } else if (move === 'mend') {
       const raw = this.range(phase.mend) + mana;
@@ -308,6 +317,9 @@ export class Battle {
         t: 'bossMend', amount, raw, shieldGain, wasted: overflow - shieldGain,
         manaSpent: mana, bossHp: this.boss.hp, shield: this.boss.shield
       });
+    } else if (move === 'eclipse') {
+      this.eclipse = (this.mode.eclipseTurns || 3) + 1;
+      events.push({ t: 'eclipse', turns: this.mode.eclipseTurns || 3 });
     } else if (move === 'channel') {
       const gain = Math.min(this.range(phase.channel), CONFIG.boss.manaCap - this.boss.mana);
       this.boss.mana += gain;
@@ -317,15 +329,23 @@ export class Battle {
     }
 
     this.player.guarding = false;
+    if (this.eclipse > 0) {
+      this.eclipse--;
+      if (this.eclipse === 0) events.push({ t: 'eclipseEnd' });
+    }
     if (this.checkEnd(events)) return events;
     this.rollIntent();
-    events.push({ t: 'intent', intent: this.intent });
+    events.push({ t: 'intent', intent: this.intent, hidden: this.eclipse > 0 });
     return events;
   }
 }
 
 export function expectedIncoming(battle) {
   const phase = battle.phaseData;
+  if (battle.eclipse > 0) {
+    const s = phase.strike, u = phase.sunder || phase.strike;
+    return ((s[0] + s[1]) / 2 + (u[0] + u[1]) / 2) / 2 * (battle.mode.eclipseBonus || 1);
+  }
   const move = battle.intent;
   if (move !== 'strike' && move !== 'sunder') return 0;
   const heavy = move === 'sunder';

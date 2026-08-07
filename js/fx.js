@@ -63,7 +63,7 @@ export class Arena {
     this.boss = {
       hp: 1, phase: 0, alive: true, visible: false,
       breath: 0, spin: 0, hit: 0, recoil: 0, recoilV: 0,
-      charge: 0, tilt: 0, ghost: 0, wind: 0, drain: 0, shield: 0, shieldHit: 0
+      charge: 0, tilt: 0, ghost: 0, wind: 0, drain: 0, shield: 0, shieldHit: 0, eclipse: 0
     };
     this.cracks = [];
     this.shakeX = 0; this.shakeY = 0; this.shakeMag = 0;
@@ -469,7 +469,8 @@ export class Arena {
 
     const cx = this.cx + b.recoil + b.tilt * this.R * 0.16;
     const cy = this.cy + b.tilt * this.R * 0.07;
-    const heat = 0.4 + b.phase * 0.3 + b.hit * 0.6 + b.charge * 0.35;
+    const veil = 1 - b.eclipse * 0.82;
+    const heat = (0.4 + b.phase * 0.3 + b.hit * 0.6 + b.charge * 0.35) * veil;
 
     const I = this.intensity;
     ctx.save();
@@ -488,6 +489,7 @@ export class Arena {
     this.drawShards(ctx, cx, cy, R);
     this.drawCore(ctx, cx, cy, R, heat);
     if (b.shield > 0.001) this.drawShield(ctx, cx, cy, R);
+    if (b.eclipse > 0.001) this.drawEclipse(ctx, cx, cy, R);
 
     if (b.ghost > 0.02) {
       ctx.save();
@@ -679,6 +681,50 @@ export class Arena {
       r0: this.R * 1.2, speed0: 140, speed1: full ? 620 : 340,
       color: this.pal.pale, size: 2.8, life: 0.8
     });
+  }
+
+  drawEclipse(ctx, cx, cy, R) {
+    const b = this.boss;
+    const e = b.eclipse;
+    const rr = R * (1.05 + e * 0.16);
+    ctx.save();
+    const g = ctx.createRadialGradient(cx, cy, rr * 0.2, cx, cy, rr * 2.4);
+    g.addColorStop(0, this.rgba(this.pal.body, 0.97 * e));
+    g.addColorStop(0.42, this.rgba(this.pal.body, 0.8 * e));
+    g.addColorStop(1, this.rgba(this.pal.body, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, rr * 2.4, 0, TAU); ctx.fill();
+
+    ctx.globalCompositeOperation = this.blend;
+    ctx.strokeStyle = this.rgba(this.pal.ember, 0.55 * e);
+    ctx.lineWidth = Math.max(1.6, R * 0.02);
+    ctx.beginPath(); ctx.arc(cx, cy, rr, 0, TAU); ctx.stroke();
+
+    ctx.strokeStyle = this.rgba(this.pal.ember, 0.22 * e);
+    ctx.lineWidth = Math.max(0.8, R * 0.008);
+    const n = 5;
+    for (let i = 0; i < n; i++) {
+      const a = this.t * 0.4 + (TAU / n) * i;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * rr * 1.04, cy + Math.sin(a) * rr * 1.04);
+      ctx.lineTo(cx + Math.cos(a) * rr * (1.5 + Math.sin(this.t * 1.3 + i) * 0.1),
+                 cy + Math.sin(a) * rr * (1.5 + Math.sin(this.t * 1.3 + i) * 0.1));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  eclipseFall() {
+    this.shake(20);
+    this.wave(this.cx, this.cy, { r0: this.R * 4.5, vr: -900, w: 6, color: this.pal.body, max: 0.8 });
+    this.wave(this.cx, this.cy, { r0: this.R * 4.2, vr: -820, w: 2, color: this.pal.ember, max: 0.9 });
+    this.sparks(60, this.cx, this.cy, { r0: this.R * 2.4, speed0: 40, speed1: 200, color: this.pal.ember, size: 2.4, life: 1.4, grav: -30 });
+  }
+
+  eclipseLift() {
+    this.shake(14);
+    this.wave(this.cx, this.cy, { vr: 1200, w: 5, color: this.pal.pale, max: 0.7 });
+    this.sparks(70, this.cx, this.cy, { speed0: 160, speed1: 700, color: this.pal.pale, size: 3, life: 1 });
   }
 
   drawWaves(ctx) {
