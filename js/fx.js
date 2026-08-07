@@ -77,6 +77,7 @@ export class Arena {
     this.scale = 1;
     this.blend = 'lighter';
     this.frozen = false;
+    this.draw2DEntity = false;
     this.resize();
   }
 
@@ -417,7 +418,7 @@ export class Arena {
     ctx.translate(this.shakeX + px * 22, this.shakeY + py * 16);
 
     this.drawFloor(ctx);
-    if (this.boss.visible) this.drawEntity(ctx);
+    if (this.boss.visible && this.draw2DEntity) this.drawEntity(ctx);
     this.drawWaves(ctx);
     this.drawParticles(ctx);
   }
@@ -552,16 +553,16 @@ export class Arena {
 
   get sway() {
     const b = this.boss;
-    return Math.sin(b.breath * 0.55) * 0.045 + b.tilt * 0.06;
+    return Math.sin(b.breath * 0.5) * 0.04 + b.tilt * 0.05;
   }
 
   corePoints(cx, cy, R, scale = 1) {
     const b = this.boss;
-    const br = 1 + Math.sin(b.breath * 1.4) * 0.02 + b.hit * 0.09;
+    const br = 1 + Math.sin(b.breath * 1.4) * 0.02 + b.hit * 0.08;
     const rr = R * scale * br;
     const a = this.sway;
     const ca = Math.cos(a), sa = Math.sin(a);
-    return [[0, -1.06], [0.9, 0], [0, 1.06], [-0.9, 0]].map(([x, y]) => [
+    return [[0, -1.08], [0.92, 0], [0, 1.08], [-0.92, 0]].map(([x, y]) => [
       cx + (x * ca - y * sa) * rr,
       cy + (x * sa + y * ca) * rr
     ]);
@@ -574,131 +575,6 @@ export class Arena {
     ctx.closePath();
   }
 
-  halfPath(ctx, pts, upper, off) {
-    const [t, r, bm, l] = pts;
-    ctx.beginPath();
-    if (upper) {
-      ctx.moveTo(l[0], l[1] - off);
-      ctx.lineTo(t[0], t[1] - off);
-      ctx.lineTo(r[0], r[1] - off);
-    } else {
-      ctx.moveTo(r[0], r[1] + off);
-      ctx.lineTo(bm[0], bm[1] + off);
-      ctx.lineTo(l[0], l[1] + off);
-    }
-    ctx.closePath();
-  }
-
-  drawCore(ctx, cx, cy, R, heat, tint) {
-    const b = this.boss;
-    const I = this.intensity;
-    const hot = Math.min(1, heat + b.hit);
-    const pts = this.corePoints(cx, cy, R);
-
-    const openBase = b.phase === 0 ? 0.012 : b.phase === 1 ? 0.055 : 0.13;
-    const off = R * (openBase + Math.sin(b.breath * 1.1) * 0.012 + b.hit * 0.07);
-
-    if (tint) {
-      ctx.save();
-      this.corePath(ctx, pts);
-      ctx.fillStyle = this.rgba(tint, 0.8);
-      ctx.fill();
-      ctx.restore();
-      return;
-    }
-
-    ctx.save();
-    ctx.globalCompositeOperation = this.blend;
-    const seamR = R * (0.55 + off / R * 3);
-    const sg = ctx.createRadialGradient(cx, cy, 0, cx, cy, seamR);
-    const sp = 0.55 + Math.sin(this.t * 3.2) * 0.1 + b.hit * 0.7 + b.charge * 0.3;
-    sg.addColorStop(0, this.rgba(this.pal.pale, 0.72 * sp * I));
-    sg.addColorStop(0.3, this.rgba(this.pal.ember, 0.4 * sp * I));
-    sg.addColorStop(1, this.rgba(this.pal.ember, 0));
-    ctx.fillStyle = sg;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, seamR, seamR * 0.42, this.sway, 0, TAU);
-    ctx.fill();
-    ctx.restore();
-
-    for (const upper of [true, false]) {
-      ctx.save();
-      this.halfPath(ctx, pts, upper, off);
-      const g = ctx.createLinearGradient(cx, cy - R, cx, cy + R);
-      if (upper) {
-        g.addColorStop(0, this.mixHex(this.pal.body, this.pal.ink, 0.1 + b.hit * 0.24));
-        g.addColorStop(0.72, this.pal.body);
-        g.addColorStop(1, this.mixHex(this.pal.body, this.pal.ember, 0.3 + hot * 0.26));
-      } else {
-        g.addColorStop(0, this.mixHex(this.pal.body, this.pal.ember, 0.42 + hot * 0.3));
-        g.addColorStop(0.45, this.mixHex(this.pal.body, this.pal.ember, 0.14 + hot * 0.1));
-        g.addColorStop(1, this.pal.body);
-      }
-      ctx.fillStyle = g;
-      ctx.fill();
-
-      ctx.save();
-      ctx.clip();
-      ctx.globalCompositeOperation = this.blend;
-      for (const c of this.cracks) {
-        const lim = c.pts.length * c.grow;
-        ctx.strokeStyle = this.rgba(this.pal.ember, (0.62 + b.hit * 0.38) * I);
-        ctx.lineWidth = Math.max(1.2, R * 0.018);
-        ctx.beginPath();
-        ctx.moveTo(cx, cy + (upper ? -off : off));
-        for (let i = 0; i < c.pts.length; i++) {
-          if (i > lim) break;
-          ctx.lineTo(cx + c.pts[i][0] * R, cy + c.pts[i][1] * R + (upper ? -off : off));
-        }
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      const inset = this.corePoints(cx, cy, R, 0.86);
-      ctx.save();
-      this.halfPath(ctx, inset, upper, off * 0.86);
-      ctx.strokeStyle = this.rgba(this.pal.ink, (0.17 + b.hit * 0.3) * I);
-      ctx.lineWidth = Math.max(0.7, R * 0.005);
-      ctx.stroke();
-      ctx.restore();
-
-      this.halfPath(ctx, pts, upper, off);
-      ctx.strokeStyle = this.rgba(b.hit > 0.3 ? this.pal.pale : this.pal.ink, 0.62 + b.hit * 0.38);
-      ctx.lineWidth = Math.max(1.2, R * 0.016);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    ctx.save();
-    ctx.globalCompositeOperation = this.blend;
-    const lw = R * (0.9 - off / R * 0.5);
-    const bg = ctx.createLinearGradient(cx - lw, cy, cx + lw, cy);
-    bg.addColorStop(0, this.rgba(this.pal.ember, 0));
-    bg.addColorStop(0.5, this.rgba(this.pal.pale, (0.85 + b.hit * 0.15) * sp * I));
-    bg.addColorStop(1, this.rgba(this.pal.ember, 0));
-    ctx.fillStyle = bg;
-    const th = Math.max(1.4, off * 0.55 + R * 0.008);
-    ctx.translate(cx, cy); ctx.rotate(this.sway);
-    ctx.fillRect(-lw, -th / 2, lw * 2, th);
-    ctx.restore();
-
-    if (b.charge > 0.02) {
-      ctx.save();
-      ctx.globalCompositeOperation = this.blend;
-      ctx.strokeStyle = this.rgba(this.pal.acid, (0.3 + b.charge * 0.6) * I);
-      ctx.lineWidth = Math.max(1, R * 0.01);
-      const cp = this.corePoints(cx, cy, R, 1.16);
-      for (const [px, py] of cp) {
-        const dx = px - cx, dy = py - cy, L = Math.hypot(dx, dy) || 1;
-        ctx.beginPath();
-        ctx.moveTo(px - (dx / L) * R * 0.1, py - (dy / L) * R * 0.1);
-        ctx.lineTo(px + (dx / L) * R * 0.06, py + (dy / L) * R * 0.06);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-  }
-
   mixHex(a, bHex, t) {
     const parse = h => {
       let x = (h || '#000').replace('#', '');
@@ -708,6 +584,105 @@ export class Arena {
     };
     const A = parse(a), B = parse(bHex);
     return `rgb(${Math.round(A[0] + (B[0] - A[0]) * t)},${Math.round(A[1] + (B[1] - A[1]) * t)},${Math.round(A[2] + (B[2] - A[2]) * t)})`;
+  }
+
+  drawCore(ctx, cx, cy, R, heat, tint) {
+    const b = this.boss;
+    const I = this.intensity;
+    const hot = Math.min(1, heat + b.hit);
+    const pts = this.corePoints(cx, cy, R);
+
+    if (tint) {
+      ctx.save();
+      this.corePath(ctx, pts);
+      ctx.fillStyle = this.rgba(tint, 0.75);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    const wound = 1 - Math.max(0, Math.min(1, b.hp));
+    const gap = R * (0.055 + b.phase * 0.055 + wound * 0.05
+      + Math.sin(b.breath * 1.05) * 0.012 + b.hit * 0.075);
+    const glow = 0.5 + Math.sin(this.t * 3.4) * 0.1 + b.hit * 0.8 + b.charge * 0.3;
+
+    ctx.save();
+    ctx.globalCompositeOperation = this.blend;
+    const hg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.02);
+    hg.addColorStop(0, this.rgba(this.pal.pale, 0.85 * glow * I));
+    hg.addColorStop(0.22, this.rgba(this.pal.ember, 0.5 * glow * I));
+    hg.addColorStop(1, this.rgba(this.pal.ember, 0));
+    ctx.fillStyle = hg;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.02, 0, TAU); ctx.fill();
+    ctx.restore();
+
+    for (let i = 0; i < 4; i++) {
+      const p1 = pts[i], p2 = pts[(i + 1) % 4];
+      const bx = (p1[0] + p2[0]) / 2 - cx, by = (p1[1] + p2[1]) / 2 - cy;
+      const L = Math.hypot(bx, by) || 1;
+      const ox = (bx / L) * gap, oy = (by / L) * gap;
+      const inner = 0.2;
+      const ix = cx + bx * inner, iy = cy + by * inner;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(p1[0] + ox, p1[1] + oy);
+      ctx.lineTo(p2[0] + ox, p2[1] + oy);
+      ctx.lineTo(ix + ox, iy + oy);
+      ctx.closePath();
+
+      const g = ctx.createLinearGradient(ix + ox, iy + oy, cx + bx + ox, cy + by + oy);
+      g.addColorStop(0, this.mixHex(this.pal.body, this.pal.ember, 0.5 + hot * 0.32));
+      g.addColorStop(0.42, this.mixHex(this.pal.body, this.pal.ember, 0.13 + hot * 0.1));
+      g.addColorStop(1, this.pal.body);
+      ctx.fillStyle = g;
+      ctx.fill();
+
+      ctx.strokeStyle = this.rgba(b.hit > 0.3 ? this.pal.pale : this.pal.ink, 0.62 + b.hit * 0.38);
+      ctx.lineWidth = Math.max(1.1, R * 0.015);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(p1[0] + ox, p1[1] + oy);
+      ctx.lineTo(p2[0] + ox, p2[1] + oy);
+      ctx.strokeStyle = this.rgba(this.pal.ink, (0.2 + b.hit * 0.3) * I);
+      ctx.lineWidth = Math.max(0.6, R * 0.004);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = this.blend;
+    const kg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.34);
+    kg.addColorStop(0, this.rgba(this.pal.pale, 0.95 * glow * I));
+    kg.addColorStop(0.5, this.rgba(this.pal.ember, 0.45 * glow * I));
+    kg.addColorStop(1, this.rgba(this.pal.ember, 0));
+    ctx.fillStyle = kg;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.34, 0, TAU); ctx.fill();
+
+    this.corePath(ctx, this.corePoints(cx, cy, R, 0.13));
+    ctx.fillStyle = this.rgba(this.pal.pale, (0.8 + b.hit * 0.2) * I);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = this.blend;
+    const ringR = 1.3 + b.charge * 0.06;
+    ctx.setLineDash([R * 0.1, R * 0.062]);
+    ctx.lineDashOffset = -this.t * R * 0.2;
+    ctx.strokeStyle = this.rgba(this.pal.ink, (0.34 + hot * 0.16) * I);
+    ctx.lineWidth = Math.max(1, R * 0.011);
+    this.corePath(ctx, this.corePoints(cx, cy, R, ringR));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (b.charge > 0.02) {
+      ctx.strokeStyle = this.rgba(this.pal.acid, (0.3 + b.charge * 0.6) * I);
+      ctx.lineWidth = Math.max(1, R * 0.009);
+      this.corePath(ctx, this.corePoints(cx, cy, R, ringR + 0.12));
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   drawShield(ctx, cx, cy, R) {

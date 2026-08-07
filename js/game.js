@@ -1,5 +1,6 @@
 import { Battle, CONFIG, BOSS, MODES, INTENT_COPY } from './rules.js';
 import { Arena, grainDataUrl } from './fx.js';
+import { Warden } from './warden3d.js';
 import { Sfx } from './audio.js';
 
 const { gsap } = window;
@@ -52,6 +53,7 @@ const ICONS = {
 
 const sfx = new Sfx();
 const arena = new Arena(el.arena);
+const warden = new Warden($('#warden'));
 let battle = null;
 let busy = true;
 let muted = false;
@@ -67,6 +69,7 @@ function readPalette() {
     acid: g('--acid'), pale: g('--pale'), line: g('--line')
   };
   arena.setPalette(pal, root.dataset.theme === 'light');
+  warden.setPalette(pal);
 }
 
 /* ── boot ─────────────────────────────────────────────── */
@@ -83,7 +86,19 @@ gsap.ticker.add(() => {
   last = now;
   arena.update(dt);
   arena.render();
+  syncWarden(dt);
 });
+
+function syncWarden(dt) {
+  const w = warden.state, b = arena.boss;
+  w.hp = b.hp; w.phase = b.phase; w.hit = Math.max(w.hit, b.hit);
+  w.charge = b.charge; w.shield = b.shield; w.eclipse = b.eclipse;
+  w.recoil = b.recoil; w.alive = b.alive; w.visible = b.visible;
+  w.intensity = arena.intensity;
+  warden.setFocus(arena.cx, arena.cy, arena.R);
+  if (!arena.frozen) warden.update(dt);
+  warden.render();
+}
 
 let grainT = 0;
 gsap.ticker.add(() => {
@@ -94,6 +109,7 @@ gsap.ticker.add(() => {
 
 window.addEventListener('resize', () => {
   arena.resize();
+  warden.resize();
   syncFocus();
 });
 

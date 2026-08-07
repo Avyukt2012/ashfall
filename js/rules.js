@@ -108,14 +108,14 @@ export const MODES = {
     name: 'VYRETH UNBOUND',
     label: 'UNBOUND',
     bossHp: 1000,
-    playerHp: 490,
+    playerHp: 450,
     shieldCap: 150,
     sunderStrip: 1,
     guardConversion: 0.32,
     guardMult: 0.58,
     eclipseTurns: 3,
     eclipseBonus: 1.2,
-    playerDmg: 1.8,
+    playerDmg: 1.72,
     playerMend: 1.7,
     phases: UNBOUND_PHASES
   }
