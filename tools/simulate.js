@@ -5,14 +5,14 @@ function skilledPolicy(b) {
   const hp = b.player.hp;
   const mana = b.player.mana;
   const lethal = incoming >= hp * 0.9;
-  const guarded = incoming * CONFIG.guardMult;
+  const guarded = incoming * b.mode.guardMult;
 
   if (lethal) return guarded < hp * 0.6 ? 'guard' : 'mend';
   if (hp < b.player.maxHp * 0.3) return 'mend';
   if (mana >= CONFIG.overchargeAt) return 'strike';
   if (incoming >= 34) return 'guard';
   if (incoming === 0 && mana < CONFIG.overchargeAt) return 'channel';
-  if (mana < CONFIG.overchargeAt && b.boss.hp > 120) return 'channel';
+  if (mana < CONFIG.overchargeAt && b.boss.hp + b.boss.shield > 120) return 'channel';
   return 'strike';
 }
 
@@ -26,17 +26,18 @@ function naivePolicy(b) {
   return 'strike';
 }
 
-function run(policy, n) {
-  let wins = 0, losses = 0, draws = 0, turns = 0, closeWins = 0;
+function run(policy, n, mode) {
+  let wins = 0, losses = 0, draws = 0, turns = 0, closeWins = 0, shield = 0;
   const hpLeft = [];
   for (let i = 0; i < n; i++) {
-    const b = new Battle();
+    const b = new Battle(mode);
     let guard = 0;
     while (!b.over && guard++ < 400) {
       b.playerTurn(policy(b));
       if (!b.over) b.bossTurn();
     }
     turns += b.stats.turns;
+    shield += b.stats.shieldBroken;
     if (b.outcome === 'victory') {
       wins++;
       hpLeft.push(b.player.hp / b.player.maxHp);
@@ -48,17 +49,19 @@ function run(policy, n) {
   return {
     win: (wins / n * 100).toFixed(1) + '%',
     loss: (losses / n * 100).toFixed(1) + '%',
-    draw: (draws / n * 100).toFixed(1) + '%',
     avgTurns: (turns / n).toFixed(1),
     avgHpOnWin: (avgHp * 100).toFixed(0) + '%',
-    nailbiters: (closeWins / (wins || 1) * 100).toFixed(0) + '% of wins under 25% HP'
+    shieldEaten: Math.round(shield / n),
+    nailbiters: (closeWins / (wins || 1) * 100).toFixed(0) + '%'
   };
 }
 
-const N = Number(process.argv[2] || 20000);
-console.log(`ASHFALL balance sim — ${N} battles per policy\n`);
-console.table({
-  'skilled (reads intents)': run(skilledPolicy, N),
-  'naive (heal at 90, some mana)': run(naivePolicy, N),
-  'greedy (strike every turn)': run(greedyPolicy, N)
-});
+const N = Number(process.argv[2] || 30000);
+for (const mode of ['normal', 'unbound']) {
+  console.log(`\nASHFALL — ${mode.toUpperCase()} — ${N} battles per policy`);
+  console.table({
+    'skilled (reads intents)': run(skilledPolicy, N, mode),
+    'greedy (strike every turn)': run(greedyPolicy, N, mode),
+    'naive (heal at 90)': run(naivePolicy, N, mode)
+  });
+}

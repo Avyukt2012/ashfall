@@ -66,6 +66,14 @@
             <span class="cta__text">BEGIN THE DUEL</span>
             <span class="cta__hint">↵</span>
           </button>
+
+          <div class="modes" id="modes" hidden>
+            <p class="modes__label">TRIAL</p>
+            <div class="modes__row">
+              <button class="mode is-on" data-mode="normal">ASHEN</button>
+              <button class="mode mode--unbound" data-mode="unbound">UNBOUND</button>
+            </div>
+          </div>
         </div>
 
         <div class="primer" id="primer">
@@ -104,10 +112,13 @@
         <div class="boss__state">
           <div class="pips" id="phasePips"><i class="pip is-on"></i><i class="pip"></i><i class="pip"></i></div>
           <p class="boss__phase" id="phaseName">DORMANT</p>
-          <p class="boss__hpnum"><span id="bossHpNum">450</span><em>/450</em></p>
+          <p class="boss__hpnum">
+            <span id="bossHpNum">450</span><em id="bossHpMax">/450</em><i id="bossShieldNum"></i>
+          </p>
         </div>
       </div>
       <div class="bar bar--boss">
+        <div class="shieldbar" id="shieldBar"><span id="shieldFill"></span></div>
         <div class="bar__track">
           <div class="bar__lag" id="bossLag"></div>
           <div class="bar__fill" id="bossFill"></div>

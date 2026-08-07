@@ -196,6 +196,26 @@ html[data-theme="light"] .theme-toggle__dot{transform:rotate(180deg)}
 .primer__desc{color:var(--dim);font-size:clamp(12px,1.15vw,14px);line-height:1.45}
 .primer__desc b{color:var(--acid)}
 
+/* ── mode selector ───────────────────────────────────── */
+.modes[hidden]{display:none}
+.modes__label{
+  font-family:'Array',sans-serif;font-size:8.5px;letter-spacing:.4em;color:var(--dim);margin-bottom:9px;
+}
+.modes__row{display:flex;gap:7px}
+.mode{
+  position:relative;overflow:hidden;padding:9px 16px;border:1px solid var(--line);
+  font-family:'Clash',sans-serif;font-weight:600;letter-spacing:.13em;font-size:11px;
+  color:var(--dim);transition:color .35s var(--e-out),border-color .35s var(--e-out);
+}
+.mode:hover{color:var(--ink);border-color:var(--ink)}
+.mode.is-on{color:var(--void);background:var(--ink);border-color:var(--ink)}
+.mode--unbound.is-on{background:var(--ember);border-color:var(--ember);color:var(--void)}
+.mode--unbound{color:var(--ember);border-color:color-mix(in srgb,var(--ember) 45%,transparent)}
+.mode--unbound:hover{color:var(--ember);border-color:var(--ember)}
+
+html[data-mode="unbound"]{--ember:#ff1f4d;--ember-soft:rgba(255,31,77,.18)}
+html[data-mode="unbound"][data-theme="light"]{--ember:#c40024;--ember-soft:rgba(196,0,36,.16)}
+
 /* ── record strip ────────────────────────────────────── */
 .record{
   display:flex;flex-wrap:wrap;gap:0 clamp(20px,3.4vw,52px);
@@ -277,6 +297,18 @@ html[data-theme="light"] .theme-toggle__dot{transform:rotate(180deg)}
 .bar__ticks{position:absolute;inset:0;display:flex;pointer-events:none}
 .bar__ticks i{flex:1;border-right:1px solid var(--void);opacity:.55}
 .bar__thresh{position:absolute;top:-4px;bottom:-4px;width:1px;background:var(--ink);opacity:.55}
+.shieldbar{
+  height:5px;margin-bottom:3px;background:var(--raise);
+  border:1px solid var(--line);opacity:0;transform-origin:left;
+}
+.shieldbar span{
+  display:block;height:100%;transform:scaleX(0);transform-origin:left;will-change:transform;
+  background:repeating-linear-gradient(90deg,var(--pale) 0 5px,transparent 5px 8px);
+}
+#bossShieldNum{
+  font-style:normal;color:var(--pale);font-size:.5em;margin-left:8px;opacity:0;
+  display:inline-block;
+}
 .bar__mana{
   display:flex;justify-content:space-between;align-items:center;margin-top:7px;
   font-family:'Array',sans-serif;font-size:clamp(8px,.85vw,10px);letter-spacing:.34em;color:var(--dim);

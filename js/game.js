@@ -1,4 +1,4 @@
-import { Battle, CONFIG, BOSS, PHASES, INTENT_COPY } from './rules.js';
+import { Battle, CONFIG, BOSS, MODES, INTENT_COPY } from './rules.js';
 import { Arena, grainDataUrl } from './fx.js';
 import { Sfx } from './audio.js';
 
@@ -30,8 +30,12 @@ const el = {
   banner: $('#banner'), bannerBg: $('.banner__bg'), bannerText: $('#bannerText'),
   resultWord: $('#resultWord'), resultLine: $('#resultLine'), resultEyebrow: $('#resultEyebrow'),
   scores: $('#scores'), themeToggle: $('#themeToggle'), muteToggle: $('#muteToggle'),
-  record: $('#record'), streak: $('#streak'), dread: $('.dread')
+  record: $('#record'), streak: $('#streak'), dread: $('.dread'),
+  shieldBar: $('#shieldBar'), shieldFill: $('#shieldFill'), shieldNum: $('#bossShieldNum'),
+  bossHpMax: $('#bossHpMax'), modes: $('#modes')
 };
+
+let mode = 'normal';
 
 const MANA_CELLS = 8;
 const CELL = CONFIG.player.manaCap / MANA_CELLS;
@@ -139,7 +143,7 @@ function hitstop(ms) {
 
 const DEV = new URLSearchParams(location.search).has('dev');
 const RECORD_KEY = 'ashfall.record.v1';
-const blankRecord = () => ({ runs: 0, wins: 0, losses: 0, bestTurns: 0, biggest: 0, streak: 0, bestStreak: 0 });
+const blankRecord = () => ({ runs: 0, wins: 0, losses: 0, bestTurns: 0, biggest: 0, streak: 0, bestStreak: 0, unboundWins: 0 });
 
 function loadRecord() {
   try {
@@ -157,11 +161,12 @@ function saveRecord(r) {
 
 let record = loadRecord();
 
-function commitRecord(outcome, stats) {
-  const fresh = { turns: false, biggest: false, streak: false };
+function commitRecord(outcome, stats, modeKey) {
+  const fresh = { turns: false, biggest: false, streak: false, unbound: false };
   record.runs++;
   if (outcome === 'victory') {
     record.wins++;
+    if (modeKey === 'unbound') { record.unboundWins++; fresh.unbound = true; }
     record.streak++;
     if (record.streak > record.bestStreak) { record.bestStreak = record.streak; fresh.streak = true; }
     if (!record.bestTurns || stats.turns < record.bestTurns) { record.bestTurns = stats.turns; fresh.turns = true; }
@@ -186,7 +191,8 @@ function paintRecord() {
     ['WIN RATE', rate + '%'],
     ['FASTEST KILL', record.bestTurns ? record.bestTurns + ' turns' : '—'],
     ['HEAVIEST BLOW', record.biggest || '—'],
-    ['BEST STREAK', record.bestStreak]
+    ['BEST STREAK', record.bestStreak],
+    ...(unlocked ? [['UNBOUND KILLS', record.unboundWins]] : [])
   ].map(([k, v]) => `<div class="rec"><span class="rec__k">${k}</span><span class="rec__v">${v}</span></div>`).join('');
 }
 
@@ -253,11 +259,11 @@ function logLine(html, who) {
   });
 }
 
-function countTo(node, to, dur = 0.5) {
-  const obj = { v: Number(node.textContent) || 0 };
+function countTo(node, to, dur = 0.5, prefix = '') {
+  const obj = { v: Number(String(node.textContent).replace(/[^\d.-]/g, '')) || 0 };
   gsap.to(obj, {
     v: to, duration: dur, ease: 'power2.out',
-    onUpdate: () => { node.textContent = Math.round(obj.v); }
+    onUpdate: () => { node.textContent = prefix + Math.round(obj.v); }
   });
 }
 
@@ -275,6 +281,23 @@ function syncBossBar(snap) {
   setBar(el.bossFill, el.bossLag, f, { snap });
   countTo(el.bossHpNum, battle.boss.hp, 0.55);
   arena.boss.hp = f;
+  syncShield();
+}
+
+function syncShield() {
+  const s = battle.boss.shield;
+  const on = s > 0;
+  gsap.to(el.shieldBar, { opacity: on ? 1 : 0, duration: 0.4, ease: 'power2.out' });
+  gsap.to(el.shieldFill, {
+    scaleX: Math.min(1, s / battle.mode.shieldCap),
+    duration: 0.5, ease: 'power3.out'
+  });
+  gsap.to(el.shieldNum, {
+    opacity: on ? 1 : 0, duration: 0.35,
+    onComplete: () => { if (!on) el.shieldNum.textContent = ''; }
+  });
+  if (on) countTo(el.shieldNum, s, 0.5, '+');
+  arena.boss.shield = Math.min(1, s / battle.mode.shieldCap);
 }
 
 function syncPlayerBar(snap) {
@@ -455,12 +478,22 @@ function strikeBeat(tl, ev) {
         ev.amount, ev.crit ? 'crit' : 'out', c.x, c.y - 20,
         ev.crit ? 'CRITICAL' : ev.overcharged ? `OVERCHARGE ×${CONFIG.overchargeMult}` : null
       );
+      if (ev.shielded > 0) {
+        arena.shieldBreak(ev.shield === 0);
+        sfx.block();
+        popNumber('−' + ev.shielded, 'block', c.x + 120, c.y + 44,
+          ev.shield === 0 ? 'WARD BROKEN' : 'WARD HOLDS');
+      }
       syncBossBar(true);
       syncMana();
       logLine(
-        ev.crit ? `Clean through — <b>${ev.amount}</b>.`
-          : ev.overcharged ? `You loose ${ev.manaSpent} charge. <b>${ev.amount}</b>.`
-            : `You strike for <b>${ev.amount}</b>.`,
+        ev.shielded > 0 && ev.shield > 0
+          ? `Its ward drinks <b>${ev.shielded}</b> of <b>${ev.amount}</b>.`
+          : ev.shielded > 0
+            ? `You shatter the ward. <b>${ev.toHp}</b> lands.`
+            : ev.crit ? `Clean through — <b>${ev.amount}</b>.`
+              : ev.overcharged ? `You loose ${ev.manaSpent} charge. <b>${ev.amount}</b>.`
+                : `You strike for <b>${ev.amount}</b>.`,
         'you'
       );
       if (ev.crit) shakeShell(22, 0.7);
@@ -521,7 +554,7 @@ function guardBeat(tl, ev) {
 }
 
 function phaseBeat(tl, ev) {
-  const phase = PHASES[ev.to];
+  const phase = battle.phases[ev.to];
   tl.add(() => {
     arena.phaseBreak(ev.to);
     sfx.phase();
@@ -608,12 +641,21 @@ function bossMendBeat(tl, ev) {
     arena.motes(34, arena.cx, arena.cy, { r0: 120, r1: 420, pull: 11, color: pal.ember, life: 0.9 });
     sfx.tone({ f: 260, to: 350, dur: 0.6, gain: 0.16, type: 'sine' });
     sfx.tone({ f: 390, dur: 0.5, gain: 0.1, type: 'sine', delay: 0.09 });
-    popNumber('+' + ev.amount, 'heal', c.x, c.y - 20, 'WARDEN MENDS');
+    if (ev.amount > 0) popNumber('+' + ev.amount, 'heal', c.x, c.y - 20, 'WARDEN MENDS');
+    if (ev.shieldGain > 0) {
+      arena.boss.shieldHit = 1;
+      arena.wave(arena.cx, arena.cy, { r0: arena.R * 2.2, vr: -420, w: 3, color: pal.pale, max: 0.8 });
+      popNumber('+' + ev.shieldGain, 'heal', c.x, c.y + 54, 'WARD');
+    }
     syncBossBar();
     syncBossMana();
-    logLine(ev.amount === 0
-      ? `${BOSS.name} is already whole.`
-      : `${BOSS.name} closes its wounds for <b>${ev.amount}</b>.`, 'boss');
+    logLine(ev.shieldGain > 0 && ev.amount === 0
+      ? `${BOSS.name} folds <b>${ev.shieldGain}</b> into a ward.`
+      : ev.shieldGain > 0
+        ? `${BOSS.name} mends <b>${ev.amount}</b> and wards <b>${ev.shieldGain}</b>.`
+        : ev.amount === 0
+          ? `${BOSS.name} is already whole.`
+          : `${BOSS.name} closes its wounds for <b>${ev.amount}</b>.`, 'boss');
   }).to(el.shell, { duration: 0.75 });
 }
 
@@ -713,10 +755,12 @@ async function takeTurn(action) {
 async function startBattle() {
   busy = true;
   el.actions.classList.add('is-locked');
-  battle = new Battle();
+  battle = new Battle(mode);
   arena.reset();
   el.log.innerHTML = '';
-  el.phaseName.textContent = PHASES[0].name;
+  el.phaseName.textContent = battle.phases[0].name;
+  el.bossTitle.textContent = battle.mode.name;
+  el.bossHpMax.textContent = '/' + battle.boss.maxHp;
   el.bossHpNum.textContent = battle.boss.maxHp;
   el.playerHpNum.textContent = battle.player.maxHp;
   el.manaVal.textContent = '0';
@@ -725,6 +769,10 @@ async function startBattle() {
   gsap.set([el.bossFill, el.bossLag, el.playerFill, el.playerLag], { scaleX: 1 });
   gsap.set([...el.manaCells.children].map(c => c.firstElementChild), { scaleX: 0 });
   gsap.set(el.guardTag, { opacity: 0, y: 3 });
+  gsap.set([el.shieldBar, el.shieldNum], { opacity: 0 });
+  gsap.set(el.shieldFill, { scaleX: 0 });
+  el.shieldNum.textContent = '';
+  arena.boss.shield = 0;
   gsap.set(el.manaCrit, { opacity: 0 });
   el.manaWrap.classList.remove('is-crit');
   el.actions.querySelector('[data-act="strike"]').dataset.charged = '0';
@@ -747,8 +795,8 @@ async function startBattle() {
   gsap.fromTo(arena.boss, { hp: 0 }, { hp: 1, duration: 1 });
 
   await tl;
-  await banner(`${BOSS.name} — ${BOSS.title}`, pal.ember);
-  logLine(`<b>${BOSS.title}</b>`, 'sys');
+  await banner(`${BOSS.name} — ${battle.mode.name}`, pal.ember);
+  logLine(`<b>${battle.mode.name}</b>`, 'sys');
   setIntent(battle.intent);
   await beat(0.4);
 
@@ -770,12 +818,17 @@ function showResult(ev) {
   el.resultLine.textContent = draw
     ? 'You broke it as it broke you. The ash settles over both.'
     : won
-      ? `${BOSS.name} is unmade. The embers go out one by one.`
+      ? (ev.mode === 'unbound'
+          ? `${BOSS.name} unbound, and unmade anyway. Almost nobody does this.`
+          : `${BOSS.name} is unmade. The embers go out one by one.`)
       : `The warden stands over you, still burning. It was never in a hurry.`;
-  el.resultEyebrow.lastChild.textContent = won ? 'THE WARDEN IS UNMADE' : 'THE DUEL IS ENDED';
+  const trial = MODES[ev.mode] || MODES.normal;
+  el.resultEyebrow.lastChild.textContent = ev.mode === 'unbound'
+    ? (won ? 'THE UNBOUND TRIAL — CLEARED' : 'THE UNBOUND TRIAL')
+    : (won ? 'THE WARDEN IS UNMADE' : 'THE DUEL IS ENDED');
 
   const acc = Math.round(s.dealt / Math.max(1, s.turns));
-  const fresh = commitRecord(ev.outcome, s);
+  const fresh = commitRecord(ev.outcome, s, ev.mode);
   paintRecord();
 
   el.streak.hidden = !(won && record.streak > 1);
@@ -943,6 +996,66 @@ el.muteToggle.addEventListener('click', () => {
   el.muteToggle.classList.toggle('is-off', muted);
   if (!muted) { sfx.resume(); sfx.ui(); }
 });
+
+/* ── konami: unlock the unbound trial ─────────────────── */
+
+const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown',
+  'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+const UNLOCK_KEY = 'ashfall.unbound';
+let konami = 0;
+let unlocked = false;
+
+try { unlocked = localStorage.getItem(UNLOCK_KEY) === '1'; } catch (e) { unlocked = false; }
+
+function setMode(next) {
+  mode = next;
+  root.dataset.mode = next;
+  [...el.modes.querySelectorAll('.mode')].forEach(b =>
+    b.classList.toggle('is-on', b.dataset.mode === next));
+  readPalette();
+  sfx.ui();
+}
+
+function revealModes(fanfare) {
+  el.modes.hidden = false;
+  paintRecord();
+  if (!fanfare) return;
+  sfx.boot(); sfx.resume();
+  sfx.phase();
+  sfx.critical();
+  flash(pal.ember, 0.9, 1.1);
+  shakeShell(26, 1.1);
+  arena.phaseBreak(2);
+  banner('UNBOUND', pal.ember);
+  gsap.fromTo('.wordmark .glyph',
+    { x: () => gsap.utils.random(-26, 26), y: () => gsap.utils.random(-18, 18), opacity: 0.35 },
+    { x: 0, y: 0, opacity: 1, duration: 0.9, stagger: { each: 0.04, from: 'random' }, ease: 'power4.out' });
+  gsap.fromTo(el.modes,
+    { opacity: 0, y: 24 },
+    { opacity: 1, y: 0, duration: 0.8, delay: 0.5, ease: 'power4.out' });
+  gsap.fromTo('.mode',
+    { scaleY: 2.4, opacity: 0 },
+    { scaleY: 1, opacity: 1, duration: 0.7, delay: 0.6, stagger: 0.08, ease: 'back.out(2.6)' });
+}
+
+window.addEventListener('keydown', e => {
+  const want = KONAMI[konami];
+  const got = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  konami = got === want ? konami + 1 : (got === KONAMI[0] ? 1 : 0);
+  if (konami < KONAMI.length) return;
+  konami = 0;
+  if (unlocked) return;
+  unlocked = true;
+  try { localStorage.setItem(UNLOCK_KEY, '1'); } catch (err) { /* private mode */ }
+  revealModes(true);
+});
+
+el.modes.addEventListener('click', e => {
+  const btn = e.target.closest('.mode');
+  if (btn) setMode(btn.dataset.mode);
+});
+
+if (unlocked) revealModes(false);
 
 if (DEV) {
   window.ASHFALL = {

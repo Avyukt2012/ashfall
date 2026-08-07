@@ -63,7 +63,7 @@ export class Arena {
     this.boss = {
       hp: 1, phase: 0, alive: true, visible: false,
       breath: 0, spin: 0, hit: 0, recoil: 0, recoilV: 0,
-      charge: 0, tilt: 0, ghost: 0, wind: 0, drain: 0
+      charge: 0, tilt: 0, ghost: 0, wind: 0, drain: 0, shield: 0, shieldHit: 0
     };
     this.cracks = [];
     this.shakeX = 0; this.shakeY = 0; this.shakeMag = 0;
@@ -362,6 +362,7 @@ export class Arena {
     b.spin += dt * (0.16 + b.phase * 0.14);
     b.hit *= Math.pow(0.0016, dt);
     b.ghost *= Math.pow(0.0009, dt);
+    b.shieldHit *= Math.pow(0.002, dt);
     b.wind *= Math.pow(0.02, dt);
     b.tilt += (0 - b.tilt) * Math.min(1, dt * 6);
 
@@ -486,6 +487,7 @@ export class Arena {
     this.drawRings(ctx, cx, cy, R, heat);
     this.drawShards(ctx, cx, cy, R);
     this.drawCore(ctx, cx, cy, R, heat);
+    if (b.shield > 0.001) this.drawShield(ctx, cx, cy, R);
 
     if (b.ghost > 0.02) {
       ctx.save();
@@ -641,6 +643,42 @@ export class Arena {
     }
     ctx.closePath(); ctx.stroke();
     ctx.restore();
+  }
+
+  drawShield(ctx, cx, cy, R) {
+    const b = this.boss;
+    const t = this.t;
+    const spread = 1.19 + b.shield * 0.1 + Math.sin(t * 1.6) * 0.014 + b.shieldHit * 0.09;
+    const pts = this.corePoints(cx, cy, R * spread);
+    const a = (0.3 + b.shield * 0.4 + b.shieldHit * 0.7) * this.intensity;
+
+    ctx.save();
+    ctx.globalCompositeOperation = this.blend;
+    ctx.strokeStyle = this.rgba(this.pal.pale, a);
+    ctx.lineWidth = Math.max(1.4, R * (0.016 + b.shield * 0.02));
+    ctx.setLineDash([R * 0.14, R * 0.07]);
+    ctx.lineDashOffset = -t * R * 0.28;
+    this.corePath(ctx, pts);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.strokeStyle = this.rgba(this.pal.pale, a * 0.28);
+    ctx.lineWidth = Math.max(0.8, R * 0.006);
+    this.corePath(ctx, this.corePoints(cx, cy, R * (spread + 0.07)));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  shieldBreak(full) {
+    this.boss.shieldHit = 1;
+    this.wave(this.cx, this.cy, {
+      r0: this.R * 1.2, vr: full ? 620 : 300, w: full ? 5 : 2.6,
+      color: this.pal.pale, max: full ? 0.8 : 0.5
+    });
+    this.sparks(full ? 54 : 22, this.cx, this.cy, {
+      r0: this.R * 1.2, speed0: 140, speed1: full ? 620 : 340,
+      color: this.pal.pale, size: 2.8, life: 0.8
+    });
   }
 
   drawWaves(ctx) {

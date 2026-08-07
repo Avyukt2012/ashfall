@@ -11,7 +11,8 @@ export const CONFIG = {
   critChance: 0.12,
   critMult: 1.8,
   guardMult: 0.5,
-  guardConversion: 0.4
+  guardConversion: 0.4,
+  shieldCap: 140
 };
 
 export const BOSS = {
@@ -26,32 +27,95 @@ export const PHASES = [
     name: 'DORMANT',
     threshold: 0.66,
     strike: [15, 54],
-    mend: [10, 14],
+    mend: [12, 18],
     channel: [2, 14],
-    table: [['strike', 1], ['mend', 1], ['channel', 2], ['wait', 3]]
+    table: [['strike', 1], ['mend', 2], ['channel', 2], ['wait', 3]]
   },
   {
     id: 1,
     key: 'awakened',
     name: 'AWAKENED',
     threshold: 0.33,
-    strike: [22, 58],
-    mend: [12, 20],
+    strike: [26, 62],
+    mend: [15, 25],
     channel: [6, 18],
-    table: [['strike', 4], ['mend', 1], ['channel', 2], ['wait', 1]]
+    table: [['strike', 4], ['mend', 2], ['channel', 2], ['wait', 1]]
   },
   {
     id: 2,
     key: 'enraged',
     name: 'ENRAGED',
     threshold: -1,
-    strike: [28, 62],
-    sunder: [52, 84],
-    mend: [10, 16],
+    strike: [32, 68],
+    sunder: [56, 90],
+    mend: [15, 24],
     channel: [6, 20],
-    table: [['strike', 4], ['sunder', 3], ['channel', 2], ['mend', 1]]
+    table: [['strike', 4], ['sunder', 3], ['channel', 2], ['mend', 2]]
   }
 ];
+
+export const UNBOUND_PHASES = [
+  {
+    id: 0,
+    key: 'awakened',
+    name: 'AWAKENED',
+    threshold: 0.62,
+    strike: [26, 58],
+    sunder: [48, 74],
+    mend: [16, 26],
+    channel: [8, 20],
+    table: [['strike', 4], ['sunder', 2], ['mend', 2], ['channel', 2]]
+  },
+  {
+    id: 1,
+    key: 'enraged',
+    name: 'ENRAGED',
+    threshold: 0.28,
+    strike: [30, 64],
+    sunder: [56, 84],
+    mend: [18, 28],
+    channel: [9, 22],
+    table: [['strike', 4], ['sunder', 3], ['mend', 2], ['channel', 2]]
+  },
+  {
+    id: 2,
+    key: 'unbound',
+    name: 'UNBOUND',
+    threshold: -1,
+    strike: [34, 70],
+    sunder: [62, 92],
+    mend: [20, 30],
+    channel: [10, 24],
+    table: [['strike', 4], ['sunder', 4], ['mend', 2], ['channel', 2]]
+  }
+];
+
+export const MODES = {
+  normal: {
+    key: 'normal',
+    name: 'THE ASHEN WARDEN',
+    label: 'ASHEN',
+    bossHp: 450,
+    playerHp: 250,
+    shieldCap: 140,
+    sunderStrip: 0.6,
+    guardConversion: 0.4,
+    guardMult: 0.5,
+    phases: PHASES
+  },
+  unbound: {
+    key: 'unbound',
+    name: 'VYRETH UNBOUND',
+    label: 'UNBOUND',
+    bossHp: 355,
+    playerHp: 215,
+    shieldCap: 150,
+    sunderStrip: 1,
+    guardConversion: 0.32,
+    guardMult: 0.58,
+    phases: UNBOUND_PHASES
+  }
+};
 
 export const INTENT_COPY = {
   strike: { label: 'STRIKE', hint: 'Winding up a blow' },
@@ -60,8 +124,6 @@ export const INTENT_COPY = {
   channel: { label: 'CHANNEL', hint: 'Drawing power inward' },
   wait: { label: 'STILL', hint: 'Watching. Waiting.' }
 };
-
-const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
 export function makeRng(seed) {
   if (seed === undefined) return Math.random;
@@ -75,15 +137,20 @@ export function makeRng(seed) {
 }
 
 export class Battle {
-  constructor(seed) {
+  constructor(modeKey = 'normal', seed) {
+    this.mode = MODES[modeKey] || MODES.normal;
+    this.phases = this.mode.phases;
     this.rng = makeRng(seed);
-    this.player = { hp: CONFIG.player.maxHp, maxHp: CONFIG.player.maxHp, mana: 0, guarding: false };
-    this.boss = { hp: CONFIG.boss.maxHp, maxHp: CONFIG.boss.maxHp, mana: 0 };
+    this.player = { hp: this.mode.playerHp, maxHp: this.mode.playerHp, mana: 0, guarding: false };
+    this.boss = { hp: this.mode.bossHp, maxHp: this.mode.bossHp, mana: 0, shield: 0 };
     this.phase = 0;
     this.turn = 0;
     this.over = false;
     this.outcome = null;
-    this.stats = { turns: 0, dealt: 0, taken: 0, healed: 0, blocked: 0, biggest: 0, crits: 0, channels: 0 };
+    this.stats = {
+      turns: 0, dealt: 0, taken: 0, healed: 0, blocked: 0,
+      biggest: 0, crits: 0, channels: 0, shieldBroken: 0
+    };
     this.intent = null;
     this.rollIntent();
   }
@@ -93,21 +160,34 @@ export class Battle {
   }
 
   get phaseData() {
-    return PHASES[this.phase];
+    return this.phases[this.phase];
   }
 
   get overcharged() {
     return this.player.mana >= CONFIG.overchargeAt;
   }
 
+  get lastPhase() {
+    return this.phase === this.phases.length - 1;
+  }
+
+  absorb(amount) {
+    const toShield = Math.min(this.boss.shield, amount);
+    this.boss.shield -= toShield;
+    const toHp = amount - toShield;
+    this.boss.hp = Math.max(0, this.boss.hp - toHp);
+    this.stats.shieldBroken += toShield;
+    return { toShield, toHp };
+  }
+
   syncPhase(events) {
     const frac = this.boss.hp / this.boss.maxHp;
     let next = this.phase;
-    while (next < PHASES.length - 1 && frac <= PHASES[next].threshold) next++;
+    while (next < this.phases.length - 1 && frac <= this.phases[next].threshold) next++;
     if (next !== this.phase) {
       const from = this.phase;
       this.phase = next;
-      events.push({ t: 'phase', from, to: next, name: PHASES[next].name });
+      events.push({ t: 'phase', from, to: next, name: this.phases[next].name });
       this.rollIntent();
       events.push({ t: 'intent', intent: this.intent, forced: true });
     }
@@ -130,7 +210,7 @@ export class Battle {
     if (!dead && !slain) return false;
     this.over = true;
     this.outcome = slain && dead ? 'draw' : slain ? 'victory' : 'defeat';
-    events.push({ t: 'end', outcome: this.outcome, stats: this.stats });
+    events.push({ t: 'end', outcome: this.outcome, stats: this.stats, mode: this.mode.key });
     return true;
   }
 
@@ -147,14 +227,16 @@ export class Battle {
       const bonus = this.overcharged ? Math.round(mana * CONFIG.overchargeMult) : mana;
       const crit = this.rng() < CONFIG.critChance;
       const amount = Math.round((base + bonus) * (crit ? CONFIG.critMult : 1));
+      const overcharged = this.overcharged && mana > 0;
       this.player.mana = 0;
-      this.boss.hp = Math.max(0, this.boss.hp - amount);
+      const hit = this.absorb(amount);
       this.stats.dealt += amount;
       this.stats.biggest = Math.max(this.stats.biggest, amount);
       if (crit) this.stats.crits++;
       events.push({
-        t: 'strike', amount, base, bonus, crit,
-        overcharged: this.overcharged && mana > 0, manaSpent: mana, bossHp: this.boss.hp
+        t: 'strike', amount, base, bonus, crit, overcharged,
+        manaSpent: mana, bossHp: this.boss.hp,
+        shielded: hit.toShield, toHp: hit.toHp, shield: this.boss.shield
       });
       this.syncPhase(events);
     } else if (action === 'mend') {
@@ -175,7 +257,7 @@ export class Battle {
       events.push({ t: 'guard' });
     }
 
-    if (this.checkEnd(events)) return events;
+    this.checkEnd(events);
     return events;
   }
 
@@ -190,7 +272,7 @@ export class Battle {
       const heavy = move === 'sunder';
       const base = this.range(heavy ? phase.sunder : phase.strike);
       const raw = base + Math.round(mana * (heavy ? 1.5 : 1));
-      const dealt = this.player.guarding ? Math.round(raw * CONFIG.guardMult) : raw;
+      const dealt = this.player.guarding ? Math.round(raw * this.mode.guardMult) : raw;
       const prevented = raw - dealt;
       this.boss.mana = 0;
       this.player.hp = Math.max(0, this.player.hp - dealt);
@@ -199,14 +281,14 @@ export class Battle {
       let converted = 0;
       if (this.player.guarding && prevented > 0) {
         converted = Math.min(
-          Math.round(prevented * CONFIG.guardConversion),
+          Math.round(prevented * this.mode.guardConversion),
           CONFIG.player.manaCap - this.player.mana
         );
         this.player.mana += converted;
       }
       let stripped = 0;
       if (heavy && !this.player.guarding && this.player.mana > 0) {
-        stripped = Math.round(this.player.mana * CONFIG.sunderStrip);
+        stripped = Math.round(this.player.mana * this.mode.sunderStrip);
         this.player.mana -= stripped;
       }
       events.push({
@@ -217,9 +299,15 @@ export class Battle {
     } else if (move === 'mend') {
       const raw = this.range(phase.mend) + mana;
       const amount = Math.min(raw, this.boss.maxHp - this.boss.hp);
+      const overflow = raw - amount;
+      const shieldGain = Math.min(overflow, this.mode.shieldCap - this.boss.shield);
       this.boss.mana = 0;
       this.boss.hp += amount;
-      events.push({ t: 'bossMend', amount, raw, wasted: raw - amount, manaSpent: mana, bossHp: this.boss.hp });
+      this.boss.shield += shieldGain;
+      events.push({
+        t: 'bossMend', amount, raw, shieldGain, wasted: overflow - shieldGain,
+        manaSpent: mana, bossHp: this.boss.hp, shield: this.boss.shield
+      });
     } else if (move === 'channel') {
       const gain = Math.min(this.range(phase.channel), CONFIG.boss.manaCap - this.boss.mana);
       this.boss.mana += gain;
@@ -237,10 +325,11 @@ export class Battle {
 }
 
 export function expectedIncoming(battle) {
-  const phase = PHASES[battle.phase];
+  const phase = battle.phaseData;
   const move = battle.intent;
   if (move !== 'strike' && move !== 'sunder') return 0;
   const heavy = move === 'sunder';
-  const [lo, hi] = heavy ? phase.sunder : phase.strike;
-  return (lo + hi) / 2 + battle.boss.mana * (heavy ? 1.5 : 1);
+  const range = heavy ? phase.sunder : phase.strike;
+  if (!range) return 0;
+  return (range[0] + range[1]) / 2 + battle.boss.mana * (heavy ? 1.5 : 1);
 }
