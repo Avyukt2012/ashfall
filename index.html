@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ASHFALL — a duel in three movements</title>
+<meta name="description" content="A turn-based duel against the Ashen Warden. Read its intent, bank your charge, and spend it before a Sunder shatters what you hold.">
+<meta name="theme-color" content="#0a0908">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ASHFALL — a duel in three movements">
+<meta property="og:description" content="Read its intent. Bank your charge. Spend it before a Sunder shatters what you hold.">
+<meta property="og:image" content="og.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="css/game.css">
 </head>
 <body>
@@ -12,6 +21,7 @@
 <div class="grain" aria-hidden="true"></div>
 <div class="vignette" aria-hidden="true"></div>
 <div class="bloodline" aria-hidden="true"></div>
+<div class="dread" aria-hidden="true"></div>
 <div class="flash" aria-hidden="true"></div>
 <div class="numbers" id="numbers" aria-hidden="true"></div>
 
@@ -73,6 +83,8 @@
           </div>
         </div>
       </div>
+
+      <div class="record" id="record" hidden></div>
     </div>
   </section>
 
@@ -179,6 +191,7 @@
   <section class="screen screen--result" id="screenResult" aria-hidden="true">
     <div class="result-inner">
       <p class="eyebrow" id="resultEyebrow"><span class="eyebrow__tick"></span>THE DUEL IS ENDED</p>
+      <p class="streak" id="streak" hidden></p>
       <h2 class="result__word" id="resultWord"></h2>
       <p class="result__line" id="resultLine"></p>
       <div class="scores" id="scores"></div>

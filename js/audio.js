@@ -25,6 +25,108 @@ export class Sfx {
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
   }
 
+  startAmbient() {
+    if (!this.ctx || this.ambient) return;
+    const t = this.t;
+    const bus = this.ctx.createGain();
+    bus.gain.setValueAtTime(0.0001, t);
+    bus.gain.exponentialRampToValueAtTime(0.5, t + 4);
+    bus.connect(this.master);
+
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(220, t);
+    lp.Q.value = 0.6;
+    lp.connect(bus);
+
+    const voices = [
+      { f: 41.2, type: 'sine', g: 0.5 },
+      { f: 61.7, type: 'triangle', g: 0.22 },
+      { f: 82.4, type: 'sine', g: 0.13 }
+    ].map(v => {
+      const osc = this.ctx.createOscillator();
+      osc.type = v.type;
+      osc.frequency.setValueAtTime(v.f, t);
+      const g = this.ctx.createGain();
+      g.gain.value = v.g;
+      osc.connect(g).connect(lp);
+      osc.start(t);
+      return { osc, g, base: v.f };
+    });
+
+    const drift = this.ctx.createOscillator();
+    drift.type = 'sine';
+    drift.frequency.value = 0.07;
+    const driftGain = this.ctx.createGain();
+    driftGain.gain.value = 2.4;
+    drift.connect(driftGain).connect(voices[1].osc.frequency);
+    drift.start(t);
+
+    const wind = this.ctx.createBufferSource();
+    wind.buffer = this.noise;
+    wind.loop = true;
+    const windFilt = this.ctx.createBiquadFilter();
+    windFilt.type = 'bandpass';
+    windFilt.frequency.setValueAtTime(340, t);
+    windFilt.Q.value = 0.5;
+    const windGain = this.ctx.createGain();
+    windGain.gain.value = 0.05;
+    wind.connect(windFilt).connect(windGain).connect(bus);
+    wind.start(t);
+
+    const breath = this.ctx.createOscillator();
+    breath.type = 'sine';
+    breath.frequency.value = 0.13;
+    const breathGain = this.ctx.createGain();
+    breathGain.gain.value = 0.035;
+    breath.connect(breathGain).connect(windGain.gain);
+    breath.start(t);
+
+    this.ambient = { bus, lp, voices, wind, windGain, windFilt, nodes: [drift, breath] };
+  }
+
+  setAmbientPhase(n) {
+    if (!this.ambient) return;
+    const t = this.t;
+    const { lp, voices, windGain, windFilt, bus } = this.ambient;
+    lp.frequency.setTargetAtTime(220 + n * 340, t, 1.2);
+    bus.gain.setTargetAtTime(0.5 + n * 0.22, t, 1.5);
+    windGain.gain.setTargetAtTime(0.05 + n * 0.05, t, 1.5);
+    windFilt.frequency.setTargetAtTime(340 + n * 260, t, 1.5);
+    voices.forEach((v, i) => {
+      v.osc.frequency.setTargetAtTime(v.base * (1 + n * 0.045), t, 2);
+      if (i === 2) v.g.gain.setTargetAtTime(0.13 + n * 0.11, t, 1.5);
+    });
+  }
+
+  setDread(amount) {
+    if (!this.ambient) return;
+    const t = this.t;
+    this.ambient.windGain.gain.setTargetAtTime(0.05 + amount * 0.14, t, 0.8);
+    this.ambient.lp.frequency.setTargetAtTime(220 + amount * 520, t, 0.8);
+  }
+
+  pulse(low) {
+    if (!this.ctx || this.muted) return;
+    this.tone({ f: low ? 46 : 40, to: 28, dur: 0.34, gain: low ? 0.42 : 0.22, type: 'sine' });
+    this.tone({ f: low ? 60 : 52, to: 30, dur: 0.28, gain: 0.16, type: 'sine', delay: 0.19 });
+  }
+
+  stopAmbient() {
+    if (!this.ambient) return;
+    const t = this.t;
+    const a = this.ambient;
+    this.ambient = null;
+    a.bus.gain.setTargetAtTime(0.0001, t, 0.5);
+    setTimeout(() => {
+      try {
+        a.voices.forEach(v => v.osc.stop());
+        a.nodes.forEach(n => n.stop());
+        a.wind.stop();
+      } catch (e) { /* already stopped */ }
+    }, 2200);
+  }
+
   setMuted(v) {
     this.muted = v;
     if (this.master) this.master.gain.setTargetAtTime(v ? 0 : 0.5, this.ctx.currentTime, 0.02);

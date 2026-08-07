@@ -75,6 +75,7 @@ export class Arena {
     this.intensity = 1;
     this.scale = 1;
     this.blend = 'lighter';
+    this.frozen = false;
     this.resize();
   }
 
@@ -352,6 +353,7 @@ export class Arena {
   /* ── loop ─────────────────────────────────────────── */
 
   update(dtRaw) {
+    if (this.frozen) return;
     const dt = Math.min(dtRaw, 0.05) * this.timeScale;
     this.t += dt;
     const b = this.boss;

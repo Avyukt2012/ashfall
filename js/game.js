@@ -29,7 +29,8 @@ const el = {
   log: $('#log'), actions: $('#actions'), deck: $('#deck'), mid: $('.mid'),
   banner: $('#banner'), bannerBg: $('.banner__bg'), bannerText: $('#bannerText'),
   resultWord: $('#resultWord'), resultLine: $('#resultLine'), resultEyebrow: $('#resultEyebrow'),
-  scores: $('#scores'), themeToggle: $('#themeToggle'), muteToggle: $('#muteToggle')
+  scores: $('#scores'), themeToggle: $('#themeToggle'), muteToggle: $('#muteToggle'),
+  record: $('#record'), streak: $('#streak'), dread: $('.dread')
 };
 
 const MANA_CELLS = 8;
@@ -124,6 +125,71 @@ function buildManaCells() {
 
 const beat = d => gsap.to({}, { duration: d });
 
+let stopTimer = null;
+function hitstop(ms) {
+  if (stopTimer) clearTimeout(stopTimer);
+  gsap.globalTimeline.timeScale(0);
+  arena.frozen = true;
+  stopTimer = setTimeout(() => {
+    gsap.globalTimeline.timeScale(1);
+    arena.frozen = false;
+    stopTimer = null;
+  }, ms);
+}
+
+const DEV = new URLSearchParams(location.search).has('dev');
+const RECORD_KEY = 'ashfall.record.v1';
+const blankRecord = () => ({ runs: 0, wins: 0, losses: 0, bestTurns: 0, biggest: 0, streak: 0, bestStreak: 0 });
+
+function loadRecord() {
+  try {
+    const raw = localStorage.getItem(RECORD_KEY);
+    return raw ? { ...blankRecord(), ...JSON.parse(raw) } : blankRecord();
+  } catch (e) {
+    return blankRecord();
+  }
+}
+
+function saveRecord(r) {
+  if (DEV) return;
+  try { localStorage.setItem(RECORD_KEY, JSON.stringify(r)); } catch (e) { /* private mode */ }
+}
+
+let record = loadRecord();
+
+function commitRecord(outcome, stats) {
+  const fresh = { turns: false, biggest: false, streak: false };
+  record.runs++;
+  if (outcome === 'victory') {
+    record.wins++;
+    record.streak++;
+    if (record.streak > record.bestStreak) { record.bestStreak = record.streak; fresh.streak = true; }
+    if (!record.bestTurns || stats.turns < record.bestTurns) { record.bestTurns = stats.turns; fresh.turns = true; }
+  } else {
+    if (outcome === 'defeat') record.losses++;
+    record.streak = 0;
+  }
+  if (stats.biggest > record.biggest) { record.biggest = stats.biggest; fresh.biggest = true; }
+  saveRecord(record);
+  return fresh;
+}
+
+function paintRecord() {
+  const wrap = el.record;
+  if (!wrap) return;
+  if (!record.runs) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const rate = record.runs ? Math.round((record.wins / record.runs) * 100) : 0;
+  wrap.innerHTML = [
+    ['DUELS', record.runs],
+    ['WON', record.wins],
+    ['WIN RATE', rate + '%'],
+    ['FASTEST KILL', record.bestTurns ? record.bestTurns + ' turns' : '—'],
+    ['HEAVIEST BLOW', record.biggest || '—'],
+    ['BEST STREAK', record.bestStreak]
+  ].map(([k, v]) => `<div class="rec"><span class="rec__k">${k}</span><span class="rec__v">${v}</span></div>`).join('');
+}
+
 function show(screen, on) {
   screen.setAttribute('aria-hidden', on ? 'false' : 'true');
 }
@@ -215,6 +281,28 @@ function syncPlayerBar(snap) {
   const f = battle.player.hp / battle.player.maxHp;
   setBar(el.playerFill, el.playerLag, f, { snap });
   countTo(el.playerHpNum, battle.player.hp, 0.55);
+  setDread(f);
+}
+
+let dreadTl = null;
+function setDread(frac) {
+  const low = frac > 0 && frac < 0.32;
+  sfx.setDread(low ? 1 - frac / 0.32 : 0);
+  document.body.classList.toggle('is-dying', low);
+  if (low && !dreadTl) {
+    dreadTl = gsap.timeline({ repeat: -1 })
+      .call(() => sfx.pulse(true))
+      .to(el.playerHpNum, { scale: 1.09, duration: 0.16, ease: 'power2.out' }, 0)
+      .to(el.dread, { opacity: 0.5, duration: 0.16, ease: 'power2.out' }, 0)
+      .to(el.playerHpNum, { scale: 1, duration: 0.6, ease: 'power2.out' })
+      .to(el.dread, { opacity: 0.12, duration: 0.7, ease: 'power2.out' }, '<')
+      .to({}, { duration: 0.42 });
+  } else if (!low && dreadTl) {
+    dreadTl.kill();
+    dreadTl = null;
+    gsap.to(el.playerHpNum, { scale: 1, duration: 0.3 });
+    gsap.to(el.dread, { opacity: 0, duration: 0.6, ease: 'power2.out' });
+  }
 }
 
 function syncMana(burst) {
@@ -361,6 +449,7 @@ function strikeBeat(tl, ev) {
       const c = centerOfBoss();
       arena.impact(power, ev.crit);
       sfx.hit(power, ev.crit);
+      hitstop(ev.bossHp <= 0 ? 240 : ev.crit ? 140 : 60 + power * 24);
       flash(ev.crit ? pal.acid : pal.pale, ev.crit ? 0.75 : 0.3, ev.crit ? 0.7 : 0.36);
       popNumber(
         ev.amount, ev.crit ? 'crit' : 'out', c.x, c.y - 20,
@@ -436,6 +525,8 @@ function phaseBeat(tl, ev) {
   tl.add(() => {
     arena.phaseBreak(ev.to);
     sfx.phase();
+    sfx.setAmbientPhase(ev.to);
+    hitstop(180);
     flash(pal.pale, 1, 0.9);
     shakeShell(30, 1.1);
     el.phaseName.textContent = phase.name;
@@ -462,6 +553,7 @@ function bossStrikeBeat(tl, ev) {
     .add(() => {
       const c = centerOfPlayer();
       arena.bossImpact(power, ev.heavy);
+      hitstop(ev.playerHp <= 0 ? 220 : ev.heavy ? 120 : ev.guarded ? 90 : 55);
       if (ev.guarded) {
         sfx.block();
         arena.guarded();
@@ -546,6 +638,8 @@ function bossWaitBeat(tl) {
 function endBeat(tl, ev) {
   tl.add(() => {
     el.actions.classList.add('is-locked');
+    setDread(1);
+    sfx.stopAmbient();
     if (ev.outcome === 'defeat') {
       arena.fall();
       sfx.fall();
@@ -681,18 +775,27 @@ function showResult(ev) {
   el.resultEyebrow.lastChild.textContent = won ? 'THE WARDEN IS UNMADE' : 'THE DUEL IS ENDED';
 
   const acc = Math.round(s.dealt / Math.max(1, s.turns));
+  const fresh = commitRecord(ev.outcome, s);
+  paintRecord();
+
+  el.streak.hidden = !(won && record.streak > 1);
+  el.streak.textContent = `${record.streak} IN A ROW`;
+
   const cards = [
-    ['TURNS', s.turns, false],
-    ['DAMAGE DEALT', s.dealt, false],
-    ['HEAVIEST BLOW', s.biggest, true],
-    ['DAMAGE TAKEN', s.taken, false],
-    ['TURNED ASIDE', s.blocked, false],
-    ['MENDED', s.healed, false],
-    ['PER TURN', acc, false],
-    ['CRITS', s.crits, s.crits > 0]
+    ['TURNS', s.turns, false, fresh.turns],
+    ['DAMAGE DEALT', s.dealt, false, false],
+    ['HEAVIEST BLOW', s.biggest, true, fresh.biggest],
+    ['DAMAGE TAKEN', s.taken, false, false],
+    ['TURNED ASIDE', s.blocked, false, false],
+    ['MENDED', s.healed, false, false],
+    ['PER TURN', acc, false, false],
+    ['CRITS', s.crits, s.crits > 0, false]
   ];
-  el.scores.innerHTML = cards.map(([k, v, hi]) =>
-    `<div class="score${hi ? ' score--hi' : ''}"><p class="score__k">${k}</p><p class="score__v">${v}</p></div>`).join('');
+  el.scores.innerHTML = cards.map(([k, v, hi, isNew]) =>
+    `<div class="score${hi ? ' score--hi' : ''}${isNew ? ' score--new' : ''}">
+      <p class="score__k">${k}${isNew ? '<em>BEST</em>' : ''}</p>
+      <p class="score__v">${v}</p>
+    </div>`).join('');
 
   show(el.battle, false);
   show(el.result, true);
@@ -701,6 +804,7 @@ function showResult(ev) {
   gsap.timeline()
     .fromTo(el.resultEyebrow, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power3.out' })
     .fromTo('#resultEyebrow .eyebrow__tick', { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: 'brutal' }, '<')
+    .fromTo(el.streak, { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: 0.5, ease: 'back.out(2)' }, '-=0.3')
     .fromTo(el.resultWord.children,
       { y: '110%', opacity: 0, rotateX: -70 },
       { y: '0%', opacity: 1, rotateX: 0, duration: 1, stagger: 0.055, ease: 'power4.out' }, '-=0.35')
@@ -721,7 +825,9 @@ function showResult(ev) {
 /* ── intro ────────────────────────────────────────────── */
 
 async function intro() {
+  paintRecord();
   gsap.set(['.crop', '.wordmark .glyph', '[data-reveal]', '[data-primer]', el.begin, '.title-rule i'], { opacity: 0 });
+  if (!el.record.hidden) gsap.set('.rec', { opacity: 0 });
   await document.fonts.ready;
   arena.boss.visible = true;
   arena.boss.phase = 1;
@@ -739,7 +845,9 @@ async function intro() {
     .to('[data-primer]', { opacity: 1, duration: 0.5, stagger: 0.07 }, 1.05)
     .fromTo('[data-primer]', { x: -18 }, { x: 0, duration: 0.8, stagger: 0.07, ease: 'power4.out' }, 1.05)
     .to(el.begin, { opacity: 1, duration: 0.6, ease: 'power2.out' }, 1.35)
-    .fromTo(el.begin, { y: 22 }, { y: 0, duration: 0.9, ease: 'power4.out' }, 1.35);
+    .fromTo(el.begin, { y: 22 }, { y: 0, duration: 0.9, ease: 'power4.out' }, 1.35)
+    .to('.rec', { opacity: 1, duration: 0.5, stagger: 0.05 }, 1.5)
+    .fromTo('.rec', { y: 14 }, { y: 0, duration: 0.8, stagger: 0.05, ease: 'power4.out' }, 1.5);
 
   gsap.to('.wordmark .glyph', {
     y: i => -3 - (i % 3) * 2, duration: 2.4, ease: 'sine.inOut',
@@ -786,27 +894,27 @@ $$('.act, .cta').forEach(btn => {
 });
 
 el.begin.addEventListener('click', async () => {
-  sfx.boot(); sfx.resume(); sfx.ui();
+  sfx.boot(); sfx.resume(); sfx.ui(); sfx.startAmbient();
   el.begin.blur();
   await gsap.timeline()
     .to('.wordmark .glyph', {
       y: '-118%', opacity: 0, rotateX: 70, duration: 0.7,
       stagger: { each: 0.045, from: 'end' }, ease: 'power4.in'
     })
-    .to(['[data-reveal]', '[data-primer]', el.begin, '.title-rule'],
+    .to(['[data-reveal]', '[data-primer]', el.begin, '.title-rule', el.record],
       { opacity: 0, y: -20, duration: 0.45, stagger: 0.03, ease: 'power3.in' }, 0.1);
   startBattle();
 });
 
 el.again.addEventListener('click', async () => {
-  sfx.ui();
+  sfx.ui(); sfx.resume(); sfx.startAmbient();
   el.again.blur();
   await gsap.timeline()
     .to(el.resultWord.children, {
       y: '-110%', opacity: 0, duration: 0.6,
       stagger: { each: 0.04, from: 'end' }, ease: 'power4.in'
     })
-    .to([el.resultEyebrow, el.resultLine, '.score', el.again],
+    .to([el.resultEyebrow, el.streak, el.resultLine, '.score', el.again],
       { opacity: 0, y: -18, duration: 0.4, stagger: 0.02, ease: 'power3.in' }, 0.05);
   startBattle();
 });
@@ -836,7 +944,7 @@ el.muteToggle.addEventListener('click', () => {
   if (!muted) { sfx.resume(); sfx.ui(); }
 });
 
-if (new URLSearchParams(location.search).has('dev')) {
+if (DEV) {
   window.ASHFALL = {
     get battle() { return battle; },
     arena, sfx, play, takeTurn,
