@@ -108,13 +108,15 @@ export const MODES = {
     name: 'VYRETH UNBOUND',
     label: 'UNBOUND',
     bossHp: 1000,
-    playerHp: 215,
+    playerHp: 490,
     shieldCap: 150,
     sunderStrip: 1,
     guardConversion: 0.32,
     guardMult: 0.58,
     eclipseTurns: 3,
     eclipseBonus: 1.2,
+    playerDmg: 1.8,
+    playerMend: 1.7,
     phases: UNBOUND_PHASES
   }
 };
@@ -234,7 +236,7 @@ export class Battle {
       const base = this.range(CONFIG.strike);
       const bonus = this.overcharged ? Math.round(mana * CONFIG.overchargeMult) : mana;
       const crit = this.rng() < CONFIG.critChance;
-      const amount = Math.round((base + bonus) * (crit ? CONFIG.critMult : 1));
+      const amount = Math.round((base + bonus) * (crit ? CONFIG.critMult : 1) * (this.mode.playerDmg || 1));
       const overcharged = this.overcharged && mana > 0;
       this.player.mana = 0;
       const hit = this.absorb(amount);
@@ -249,7 +251,7 @@ export class Battle {
       this.syncPhase(events);
     } else if (action === 'mend') {
       const base = this.range(CONFIG.mend);
-      const raw = base + Math.round(mana * CONFIG.mendManaMult);
+      const raw = Math.round((base + Math.round(mana * CONFIG.mendManaMult)) * (this.mode.playerMend || 1));
       const amount = Math.min(raw, this.player.maxHp - this.player.hp);
       this.player.mana = 0;
       this.player.hp += amount;
