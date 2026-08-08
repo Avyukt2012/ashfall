@@ -115,6 +115,7 @@ window.addEventListener('resize', () => {
 
 window.addEventListener('pointermove', e => {
   arena.setPointer(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
+  warden.setPointer(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
   gsap.to(root, {
     duration: 1.1, ease: 'power3.out',
     '--tilt-x': ((e.clientX / window.innerWidth - 0.5) * -14).toFixed(2) + 'px',
@@ -494,6 +495,7 @@ function strikeBeat(tl, ev) {
     .add(() => {
       const c = centerOfBoss();
       arena.impact(power, ev.crit);
+      warden.kick(power * (ev.crit ? 1.8 : 1));
       sfx.hit(power, ev.crit);
       hitstop(ev.bossHp <= 0 ? 240 : ev.crit ? 140 : 60 + power * 24);
       flash(ev.crit ? pal.acid : pal.pale, ev.crit ? 0.75 : 0.3, ev.crit ? 0.7 : 0.36);
@@ -609,6 +611,7 @@ function bossStrikeBeat(tl, ev) {
     .add(() => {
       const c = centerOfPlayer();
       arena.bossImpact(power, ev.heavy);
+      warden.kick(power * (ev.heavy ? 1.1 : 0.5));
       hitstop(ev.playerHp <= 0 ? 220 : ev.heavy ? 120 : ev.guarded ? 90 : 55);
       if (ev.guarded) {
         sfx.block();
